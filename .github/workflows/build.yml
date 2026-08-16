@@ -2,9 +2,9 @@ name: Build Arise Kernel (Feature-Complete 4.14.357)
 
 on:
   push:
-    branches: [ main, master, lineage-23.2 ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main, master, lineage-23.2 ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 env:
@@ -67,9 +67,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_RTL
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_MTK
 
-          # 3. STRIP SECURITY/STRICTNESS TO GUARANTEE MODULE LOADING
-          # Disabling these ensures the out-of-tree RTL8812AU driver will load 
-          # without "vermagic" or "invalid module format" errors on PixelOS.
+          # 3. Strip restrictions so the out-of-tree driver always loads
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_FORCE
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_ALL
@@ -84,8 +82,7 @@ jobs:
 
       - name: Build Kernel (Relaxed for 4.14 Compatibility)
         run: |
-          echo -e "\nStarting kernel compilation...\n"
-          # Relaxed flags ensure the 4.14.357 code compiles successfully on Clang 17
+          echo "Starting kernel compilation..."
           make -j$(nproc --all) O=out ARCH=arm64 \
             KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" \
             CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -95,16 +92,14 @@ jobs:
 
       - name: Build RTL8812AU Driver (Maintained Fork)
         run: |
-          # Prepare kernel tree for external modules
           make O=out ARCH=arm64 modules_prepare
 
           # aircrack-ng repo is DEPRECATED - use the actively maintained sbwml fork
-          # which supports up to modern kernels and covers your 5.10.239 fake-uname target.
           git clone https://github.com/sbwml/rtl8812au.git rtl8812au
           cd rtl8812au
 
-          # KSRC must be an ABSOLUTE path to your kernel build tree.
-          # Without it, the Makefile falls back to the runner's own 6.17 headers.
+          # KSRC must be an ABSOLUTE path, otherwise the Makefile falls back
+          # to the runner's own 6.17 kernel headers and fails.
           make ARCH=arm64 \
             CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
             CROSS_COMPILE=aarch64-linux-gnu- \
@@ -134,43 +129,41 @@ jobs:
               echo "Failed to clone AnyKernel3!"
               exit 1
             fi
-            
+
             cp $kernel $dtb $dtbo AnyKernel3
-            
-            # 1. Inject RTL8812AU Module into system partition
+
+            # 1. Inject RTL8812AU module into system partition
             if [ -d "compiled_modules" ]; then
               mkdir -p AnyKernel3/system/lib/modules
               cp compiled_modules/*.ko AnyKernel3/system/lib/modules/
             fi
 
-            # 2. INJECT AUTO-LOAD & USB GADGET INIT SCRIPT (The Bulletproof Guarantee)
-            # This guarantees the Wi-Fi driver loads on boot and USB gadgets are initialized
+            # 2. Inject auto-load + USB gadget init script (printf = indentation-safe)
             mkdir -p AnyKernel3/system/etc/init
-            cat << 'EOF' > AnyKernel3/system/etc/init/arise.rc
-on boot
-    # Auto-load RTL8812AU Wi-Fi Driver
-    insmod /system/lib/modules/88XXau.ko
-
-on post-fs-data
-    # Initialize USB ConfigFS for RNDIS, HID, and Mass Storage
-    # This ensures the nodes exist for Android 14 HAL or manual terminal use
-    mkdir /config/usb/g1 0770 system system
-    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system
-    mkdir /config/usb/g1/functions/hid.usb0 0770 system system
-    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system
-    write /config/usb/g1/os_desc/use 1
-EOF
+            printf '%s\n' \
+              'on boot' \
+              '    # Auto-load RTL8812AU Wi-Fi Driver' \
+              '    insmod /system/lib/modules/88XXau.ko' \
+              '' \
+              'on post-fs-data' \
+              '    # USB ConfigFS nodes for RNDIS, HID and Mass Storage' \
+              '    mkdir /config/usb/g1 0770 system system' \
+              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
+              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
+              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
+              '    write /config/usb/g1/os_desc/use 1' \
+              > AnyKernel3/system/etc/init/arise.rc
 
             rm -rf out/arch/arm64/boot
             cd AnyKernel3
             zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
             cd ..
-            
-            echo "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
+
+            echo "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s)!"
             echo "Zip: $ZIPNAME"
             echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
           else
-            echo -e "\nCompilation failed!"
+            echo "Compilation failed!"
             exit 1
           fi
 
