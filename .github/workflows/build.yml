@@ -1,0 +1,144 @@
+name: Build Arise Kernel (SukiSU + SUSFS + Extras)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  # Branch for SukiSU-Ultra + SUSFS integration
+  SUSFS_BRANCH: susfs-main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync
+
+      - name: Setup AOSP Clang Toolchain
+        run: |
+          TC_DIR="$(pwd)/tc/clang-498229"
+          if [ ! -d "$TC_DIR" ]; then
+            echo "AOSP clang not found! Cloning to $TC_DIR..."
+            git clone --depth=1 -b 17 https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone "$TC_DIR"
+          fi
+          # Add Clang/LLVM bin directory to GitHub Path
+          echo "$TC_DIR/bin" >> $GITHUB_PATH
+
+      - name: Integrate SukiSU-Ultra + SUSFS
+        run: |
+          echo "Applying SukiSU-Ultra and SUSFS patches..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ env.SUSFS_BRANCH }}
+
+      - name: Generate Defconfig
+        run: |
+          mkdir -p out
+          make O=out ARCH=arm64 surya_defconfig
+
+      - name: Enable USB Gadget & Bluetooth Configs
+        run: |
+          echo "Enabling USB Gadget (RNDIS, HID, Mass Storage) and USB Bluetooth..."
+          
+          # USB Gadget Configs
+          ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
+          ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_RNDIS
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_MASS_STORAGE
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_HID
+          ./scripts/config --file out/.config --enable CONFIG_USB_F_RNDIS
+          ./scripts/config --file out/.config --enable CONFIG_USB_F_MASS_STORAGE
+          ./scripts/config --file out/.config --enable CONFIG_USB_F_HID
+          ./scripts/config --file out/.config --enable CONFIG_USB_ETH
+          ./scripts/config --file out/.config --enable CONFIG_USB_ETH_RNDIS
+
+          # USB Bluetooth Configs (hci1 support)
+          ./scripts/config --file out/.config --enable CONFIG_BT
+          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB
+          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_BCM
+          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_RTL
+          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_ATH3K
+          ./scripts/config --file out/.config --enable CONFIG_BT_INTEL
+
+          # Apply changes and resolve dependencies
+          make O=out ARCH=arm64 olddefconfig
+
+      - name: Build Kernel
+        run: |
+          echo -e "\nStarting compilation...\n"
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
+
+      - name: Build RTL8812AU Wi-Fi Driver
+        run: |
+          echo "Cloning and compiling RTL8812AU driver..."
+          git clone https://github.com/aircrack-ng/rtl8812au.git
+          cd rtl8812au
+          
+          # Compile the module against the out/ directory
+          # Using the same cross-compiler and LLVM flags as the kernel to prevent vermagic mismatches
+          make ARCH=arm64 CC=clang LD=ld.lld CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 O=../out M=$(pwd) modules -j$(nproc --all)
+          
+          # Create a directory in the root to store the module before packaging
+          mkdir -p ../compiled_modules
+          cp *.ko ../compiled_modules/
+          cd ..
+          echo "RTL8812AU driver compiled successfully."
+
+      - name: Package AnyKernel3 ZIP
+        run: |
+          export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
+          head=$(git rev-parse --verify HEAD 2>/dev/null)
+          if [ -n "$head" ]; then
+            ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
+          fi
+
+          kernel="out/arch/arm64/boot/Image.gz"
+          dtb="out/arch/arm64/boot/dtb.img"
+          dtbo="out/arch/arm64/boot/dtbo.img"
+
+          if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
+            echo -e "\nKernel compiled successfully! Zipping up...\n"
+            
+            if ! git clone -q https://github.com/surya-aosp/AnyKernel3 -b arise; then
+              echo -e "\nAnyKernel3 repo couldn't be cloned! Aborting..."
+              exit 1
+            fi
+            
+            cp $kernel $dtb $dtbo AnyKernel3
+            
+            # Copy RTL8812AU module to AnyKernel3
+            if [ -d "compiled_modules" ]; then
+              mkdir -p AnyKernel3/modules
+              cp compiled_modules/*.ko AnyKernel3/modules/
+              echo "RTL8812AU module added to AnyKernel3/modules/"
+            fi
+
+            rm -rf out/arch/arm64/boot
+            cd AnyKernel3
+            git checkout arise &> /dev/null
+            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
+            cd ..
+            
+            echo "Completed successfully!"
+            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
+          else
+            echo -e "\nCompilation failed!"
+            exit 1
+          fi
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIPNAME }}
+          path: ${{ env.ZIPNAME }}
