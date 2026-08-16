@@ -42,7 +42,7 @@ jobs:
       - name: Generate & Force Feature Defconfig
         run: |
           mkdir -p out
-          make O=out ARCH=arm64 surya_defconfig
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
 
           echo "=== FORCING ALL REQUESTED FEATURES ==="
 
@@ -78,7 +78,7 @@ jobs:
           ./scripts/config --file out/.config --disable CONFIG_DEBUG_INFO_BTF
           ./scripts/config --file out/.config --disable CONFIG_WERROR
 
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel (Relaxed for 4.14 Compatibility)
         run: |
@@ -92,7 +92,11 @@ jobs:
 
       - name: Build RTL8812AU Driver (Maintained Fork)
         run: |
-          make O=out ARCH=arm64 modules_prepare
+          make O=out ARCH=arm64 \
+            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            LLVM=1 LLVM_IAS=1 \
+            modules_prepare
 
           # aircrack-ng repo is DEPRECATED - use the actively maintained sbwml fork
           git clone https://github.com/sbwml/rtl8812au.git rtl8812au
