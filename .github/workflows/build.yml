@@ -13,7 +13,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
@@ -23,9 +22,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential cpio flex git \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            libssl-dev libelf-dev zip python3 rsync dwarves
+          sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync dwarves
 
       - name: Setup AOSP Clang Toolchain
         run: |
@@ -43,10 +40,6 @@ jobs:
         run: |
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-
-          echo "=== FORCING ALL REQUESTED FEATURES ==="
-
-          # 1. USB Gadgets (RNDIS, HID, Mass Storage) + Android 14 HAL Requirements
           ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
@@ -59,15 +52,13 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_USB_F_RNDIS
           ./scripts/config --file out/.config --enable CONFIG_USB_F_MASS_STORAGE
           ./scripts/config --file out/.config --enable CONFIG_USB_F_HID
-
-          # 2. USB Bluetooth (hci1 support for external adapters)
           ./scripts/config --file out/.config --enable CONFIG_BT
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_BCM
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_RTL
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_MTK
-
-          # 3. Strip restrictions so the out-of-tree driver always loads
+          ./scripts/config --file out/.config --enable CONFIG_CFG80211
+          ./scripts/config --file out/.config --enable CONFIG_MAC80211
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_FORCE
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_ALL
@@ -77,94 +68,69 @@ jobs:
           ./scripts/config --file out/.config --disable CONFIG_CFI_CLANG
           ./scripts/config --file out/.config --disable CONFIG_DEBUG_INFO_BTF
           ./scripts/config --file out/.config --disable CONFIG_WERROR
-
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
-      - name: Build Kernel (Relaxed for 4.14 Compatibility)
+      - name: Build Kernel
         run: |
-          echo "Starting kernel compilation..."
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" \
-            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
+          make -j$(nproc --all) O=out ARCH=arm64 KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
 
-      - name: Build RTL8812AU Driver (Maintained Fork)
+      - name: Build RTL8812AU Driver (lwfinger/rtw88)
         run: |
-          make O=out ARCH=arm64 \
-            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            modules_prepare
-
-          # aircrack-ng repo is DEPRECATED - use the actively maintained sbwml fork
-          git clone https://github.com/sbwml/rtl8812au.git rtl8812au
-          cd rtl8812au
-
-          # KSRC must be an ABSOLUTE path, otherwise the Makefile falls back
-          # to the runner's own 6.17 kernel headers and fails.
-          make ARCH=arm64 \
-            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            LLVM=1 LLVM_IAS=1 \
-            KSRC="${GITHUB_WORKSPACE}/out" \
-            EXTRA_CFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -Wno-unused-function" \
-            modules -j$(nproc --all)
-
+          make O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 modules_prepare
+          git clone https://github.com/lwfinger/rtw88.git
+          cd rtw88
+          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out"
           mkdir -p "${GITHUB_WORKSPACE}/compiled_modules"
           cp *.ko "${GITHUB_WORKSPACE}/compiled_modules/"
+          mkdir -p "${GITHUB_WORKSPACE}/compiled_firmware"
+          cp firmware/*.bin "${GITHUB_WORKSPACE}/compiled_firmware/"
           cd ..
 
-      - name: Package Bulletproof AnyKernel3 ZIP
+      - name: Package AnyKernel3 ZIP
         run: |
           export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
           head=$(git rev-parse --verify HEAD 2>/dev/null)
           if [ -n "$head" ]; then
             ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
           fi
-
           kernel="out/arch/arm64/boot/Image.gz"
           dtb="out/arch/arm64/boot/dtb.img"
           dtbo="out/arch/arm64/boot/dtbo.img"
-
           if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
             if ! git clone -q https://github.com/surya-aosp/AnyKernel3 -b arise; then
               echo "Failed to clone AnyKernel3!"
               exit 1
             fi
-
             cp $kernel $dtb $dtbo AnyKernel3
-
-            # 1. Inject RTL8812AU module into system partition
             if [ -d "compiled_modules" ]; then
               mkdir -p AnyKernel3/system/lib/modules
               cp compiled_modules/*.ko AnyKernel3/system/lib/modules/
             fi
-
-            # 2. Inject auto-load + USB gadget init script (printf = indentation-safe)
+            if [ -d "compiled_firmware" ]; then
+              mkdir -p AnyKernel3/vendor/firmware/rtw88
+              cp compiled_firmware/*.bin AnyKernel3/vendor/firmware/rtw88/
+            fi
             mkdir -p AnyKernel3/system/etc/init
             printf '%s\n' \
               'on boot' \
-              '    # Auto-load RTL8812AU Wi-Fi Driver' \
-              '    insmod /system/lib/modules/88XXau.ko' \
+              '    insmod /system/lib/modules/rtw_core.ko' \
+              '    insmod /system/lib/modules/rtw_usb.ko' \
+              '    insmod /system/lib/modules/rtw_88xxa.ko' \
+              '    insmod /system/lib/modules/rtw_8812a.ko' \
+              '    insmod /system/lib/modules/rtw_8812au.ko' \
               '' \
               'on post-fs-data' \
-              '    # USB ConfigFS nodes for RNDIS, HID and Mass Storage' \
               '    mkdir /config/usb/g1 0770 system system' \
               '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
               '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
               '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
               '    write /config/usb/g1/os_desc/use 1' \
               > AnyKernel3/system/etc/init/arise.rc
-
             rm -rf out/arch/arm64/boot
             cd AnyKernel3
             zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
             cd ..
-
-            echo "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s)!"
-            echo "Zip: $ZIPNAME"
+            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
             echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
           else
             echo "Compilation failed!"
