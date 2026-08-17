@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -74,16 +74,14 @@ jobs:
         run: |
           make -j$(nproc --all) O=out ARCH=arm64 KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
 
-      - name: Build RTL8812AU Driver (lwfinger/rtw88)
+      - name: Build RTL8812AU Driver (morrownr 8812au, native 4.14 support)
         run: |
           make O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 modules_prepare
-          git clone https://github.com/lwfinger/rtw88.git
-          cd rtw88
-          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out" KCFLAGS="-D__nonstring= -Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -Wno-unused-function"
+          git clone https://github.com/morrownr/8812au-20210629.git rtl8812au
+          cd rtl8812au
+          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out" EXTRA_CFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -Wno-unused-function" -j$(nproc --all)
           mkdir -p "${GITHUB_WORKSPACE}/compiled_modules"
-          cp *.ko "${GITHUB_WORKSPACE}/compiled_modules/"
-          mkdir -p "${GITHUB_WORKSPACE}/compiled_firmware"
-          cp firmware/*.bin "${GITHUB_WORKSPACE}/compiled_firmware/"
+          cp 88XXau.ko "${GITHUB_WORKSPACE}/compiled_modules/"
           cd ..
 
       - name: Package AnyKernel3 ZIP
@@ -106,18 +104,10 @@ jobs:
               mkdir -p AnyKernel3/system/lib/modules
               cp compiled_modules/*.ko AnyKernel3/system/lib/modules/
             fi
-            if [ -d "compiled_firmware" ]; then
-              mkdir -p AnyKernel3/vendor/firmware/rtw88
-              cp compiled_firmware/*.bin AnyKernel3/vendor/firmware/rtw88/
-            fi
             mkdir -p AnyKernel3/system/etc/init
             printf '%s\n' \
               'on boot' \
-              '    insmod /system/lib/modules/rtw_core.ko' \
-              '    insmod /system/lib/modules/rtw_usb.ko' \
-              '    insmod /system/lib/modules/rtw_88xxa.ko' \
-              '    insmod /system/lib/modules/rtw_8812a.ko' \
-              '    insmod /system/lib/modules/rtw_8812au.ko' \
+              '    insmod /system/lib/modules/88XXau.ko' \
               '' \
               'on post-fs-data' \
               '    mkdir /config/usb/g1 0770 system system' \
@@ -138,7 +128,7 @@ jobs:
           fi
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.ZIPNAME }}
           path: ${{ env.ZIPNAME }}
