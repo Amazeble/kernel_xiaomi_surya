@@ -67,8 +67,12 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --disable CONFIG_KSU_DEBUG
-
-          # SUSFS configs
+          ./scripts/config --file out/.config --enable CONFIG_KPROBES
+          ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
+          ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
+          ./scripts/config --file out/.config --enable CONFIG_MODULES
+          ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
+          ./scripts/config --file out/.config --enable CONFIG_PACKET
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
