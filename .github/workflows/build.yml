@@ -60,6 +60,26 @@ jobs:
         run: |
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
+          # SukiSU-Ultra configs (KPM enabled)
+          ./scripts/config --file out/.config --enable CONFIG_KSU
+          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_SU
+          ./scripts/config --file out/.config --enable CONFIG_KPM
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          ./scripts/config --file out/.config --disable CONFIG_KSU_DEBUG
+
+          # SUSFS configs
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_SU_DEFAULT_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_DEL_SUS_KSU_DEFAULT_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_SU
           ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
