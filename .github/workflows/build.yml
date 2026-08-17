@@ -79,7 +79,7 @@ jobs:
           make O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 modules_prepare
           git clone https://github.com/lwfinger/rtw88.git
           cd rtw88
-          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out"
+          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out" KCFLAGS="-D__nonstring= -Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -Wno-unused-function"
           mkdir -p "${GITHUB_WORKSPACE}/compiled_modules"
           cp *.ko "${GITHUB_WORKSPACE}/compiled_modules/"
           mkdir -p "${GITHUB_WORKSPACE}/compiled_firmware"
