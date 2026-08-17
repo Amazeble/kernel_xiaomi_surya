@@ -41,15 +41,22 @@ jobs:
           git clone --depth=1 --branch rebase-2-electric-boogaloo https://github.com/akabul0us/android_kernel_xiaomi_surya_nethunter.git /tmp/nethunter
           cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
           rm -rf /tmp/nethunter
-          # 4.14's mac80211 predates RX_FLAG_NO_PSDU (added ~4.20); stub it so rtw88 compiles.
-          # Only used for zero-length-packet radiotap reporting - safe no-op on 4.14.
-          sed -i '1i #include <net/mac80211.h>\n#ifndef RX_FLAG_NO_PSDU\n#define RX_FLAG_NO_PSDU 0\n#endif' drivers/net/wireless/realtek/rtw88/rx.c
+          # 4.14's mac80211 predates RX_FLAG_NO_PSDU (added ~4.20) and it's the ONLY
+          # unguarded post-4.14 symbol in this driver. Stub it as a safe no-op.
+          cat > /tmp/rtw88_guard.h <<'EOF'
+          #include <net/mac80211.h>
+          #ifndef RX_FLAG_NO_PSDU
+          #define RX_FLAG_NO_PSDU 0
+          #endif
+          EOF
+          cat /tmp/rtw88_guard.h drivers/net/wireless/realtek/rtw88/rx.c > /tmp/rx.c.new
+          mv /tmp/rx.c.new drivers/net/wireless/realtek/rtw88/rx.c
+          rm -f /tmp/rtw88_guard.h
           # Wire rtw88 into the Realtek parent Kconfig and Makefile (idempotent)
           grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
-
       - name: Generate & Force Feature Defconfig
         run: |
           mkdir -p out
