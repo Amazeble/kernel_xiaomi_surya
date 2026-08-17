@@ -41,29 +41,6 @@ jobs:
           git clone --depth=1 --branch rebase-2-electric-boogaloo https://github.com/akabul0us/android_kernel_xiaomi_surya_nethunter.git /tmp/nethunter
           cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
           rm -rf /tmp/nethunter
-
-          # 4.14 compatibility shim: this driver targets modern kernels and references a few
-          # symbols your 4.14 headers lack. Define them as safe no-ops. Prepended to EVERY
-          # rtw88 .c so we stop hitting them one file at a time.
-          cat > drivers/net/wireless/realtek/rtw88/rtw88_414_compat.h <<'EOF'
-          #ifndef RTW88_414_COMPAT_H
-          #define RTW88_414_COMPAT_H
-          #include <net/mac80211.h>
-          #include <uapi/linux/nl80211.h>
-          #ifndef RX_FLAG_NO_PSDU
-          #define RX_FLAG_NO_PSDU 0
-          #endif
-          #ifndef NL80211_SCAN_FLAG_RANDOM_SN
-          #define NL80211_SCAN_FLAG_RANDOM_SN 0
-          #endif
-          #endif
-          EOF
-          for f in drivers/net/wireless/realtek/rtw88/*.c; do
-            echo '#include "rtw88_414_compat.h"' | cat - "$f" > /tmp/rtw88_patched.c
-            mv /tmp/rtw88_patched.c "$f"
-          done
-
-          # Wire rtw88 into the Realtek parent Kconfig and Makefile (idempotent)
           grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
@@ -72,7 +49,6 @@ jobs:
       - name: Generate & Force Feature Defconfig
         run: |
           mkdir -p out
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
@@ -111,7 +87,12 @@ jobs:
 
       - name: Build Kernel
         run: |
-          make -j$(nproc --all) O=out ARCH=arm64 KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
+            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            LLVM=1 LLVM_IAS=1 \
+            Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
 
       - name: Package AnyKernel3 ZIP
         run: |
