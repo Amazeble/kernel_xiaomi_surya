@@ -59,6 +59,11 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_MTK
           ./scripts/config --file out/.config --enable CONFIG_CFG80211
           ./scripts/config --file out/.config --enable CONFIG_MAC80211
+          ./scripts/config --file out/.config --enable CONFIG_RTW88
+          ./scripts/config --file out/.config --enable CONFIG_RTW88_CORE
+          ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
+          ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
+          ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_FORCE
           ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_ALL
@@ -72,17 +77,7 @@ jobs:
 
       - name: Build Kernel
         run: |
-          make -j$(nproc --all) O=out ARCH=arm64 KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img 2> >(tee log.txt >&2) || exit $?
-
-      - name: Build RTL8812AU Driver (morrownr 8812au, native 4.14 support)
-        run: |
-          make O=out ARCH=arm64 CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 modules_prepare
-          git clone https://github.com/morrownr/8812au-20210629.git rtl8812au
-          cd rtl8812au
-          make ARCH=arm64 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 KSRC="${GITHUB_WORKSPACE}/out" EXTRA_CFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -Wno-unused-function" -j$(nproc --all)
-          mkdir -p "${GITHUB_WORKSPACE}/compiled_modules"
-          cp 88XXau.ko "${GITHUB_WORKSPACE}/compiled_modules/"
-          cd ..
+          make -j$(nproc --all) O=out ARCH=arm64 KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes" CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
 
       - name: Package AnyKernel3 ZIP
         run: |
@@ -100,14 +95,22 @@ jobs:
               exit 1
             fi
             cp $kernel $dtb $dtbo AnyKernel3
-            if [ -d "compiled_modules" ]; then
+            rtw_mod=$(find out -name 'rtw88_8812au.ko' | head -n1)
+            if [ -n "$rtw_mod" ]; then
               mkdir -p AnyKernel3/system/lib/modules
-              cp compiled_modules/*.ko AnyKernel3/system/lib/modules/
+              cp "$rtw_mod" AnyKernel3/system/lib/modules/
+            else
+              echo "WARNING: rtw88_8812au.ko not found in build output!"
+            fi
+            rtw_fw=$(find out -path '*rtw88/rtw8812a_fw.bin' | head -n1)
+            if [ -n "$rtw_fw" ]; then
+              mkdir -p AnyKernel3/vendor/firmware/rtw88
+              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
             fi
             mkdir -p AnyKernel3/system/etc/init
             printf '%s\n' \
               'on boot' \
-              '    insmod /system/lib/modules/88XXau.ko' \
+              '    insmod /system/lib/modules/rtw88_8812au.ko' \
               '' \
               'on post-fs-data' \
               '    mkdir /config/usb/g1 0770 system system' \
