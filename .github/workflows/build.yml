@@ -36,18 +36,17 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ env.SUSFS_BRANCH }}
 
-            - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
+      - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
           git clone --depth=1 --branch rebase-2-electric-boogaloo https://github.com/akabul0us/android_kernel_xiaomi_surya_nethunter.git /tmp/nethunter
           cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
           rm -rf /tmp/nethunter
-          # Wire rtw88 into the Realtek parent Kconfig and Makefile (idempotent)
           grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
+
       - name: Generate & Force Feature Defconfig
-      
         run: |
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
