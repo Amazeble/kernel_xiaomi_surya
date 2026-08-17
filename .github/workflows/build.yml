@@ -41,6 +41,10 @@ jobs:
           git clone --depth=1 --branch rebase-2-electric-boogaloo https://github.com/akabul0us/android_kernel_xiaomi_surya_nethunter.git /tmp/nethunter
           cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
           rm -rf /tmp/nethunter
+          grep -rl 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 | xargs -r sed -i 's/NL80211_SCAN_FLAG_RANDOM_SN/0/g'
+          grep -rl 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 | xargs -r sed -i 's/RX_FLAG_NO_PSDU/0/g'
+          grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 && echo "SN NOT PATCHED" || echo "SN PATCHED OK"
+          grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 && echo "PSDU NOT PATCHED" || echo "PSDU PATCHED OK"
           grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
