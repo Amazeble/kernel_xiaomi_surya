@@ -1,4 +1,9 @@
-name: Build Arise Kernel (Feature-Complete 4.14.357)
+name: Google Nano Banana AI Assistant Models
+
+# ==============================================================================
+# SCRIPT METADATA & RESPONSIBILITY TRACKING
+# Name: Google Nano Banana AI Assistant Models
+# ==============================================================================
 
 on:
   push:
@@ -6,9 +11,6 @@ on:
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
-
-env:
-  SUSFS_BRANCH: susfs-main
 
 jobs:
   build:
@@ -28,16 +30,14 @@ jobs:
         run: |
           TC_DIR="$(pwd)/tc/clang-498229"
           if [ ! -d "$TC_DIR" ]; then
-            # String stitching to prevent toolchain cloning cutoffs
-            GIT_HOST="https://github.com"
+            GITLAB_HOST="https://gitlab.com"
             TC_PATH="/ThankYouMario/android_prebuilts_clang-standalone"
-            git clone --depth=1 -b 17 "${GIT_HOST}${TC_PATH}" "$TC_DIR"
+            git clone --depth=1 -b 17 "${GITLAB_HOST}${TC_PATH}" "$TC_DIR"
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
           
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
-          # String stitching to prevent driver cloning cutoffs
           GIT_HOST="https://github.com"
           DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
           git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
@@ -59,49 +59,18 @@ jobs:
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
 
-      - name: Inject APatch Source and Generate Defconfig
+      - name: Generate & Force Feature Defconfig
         run: |
-          # 1. Physically create the target tree structure
-          mkdir -p drivers/apatch
-          
-          # 2. String stitching to prevent official APatch cloning cutoffs
-          GIT_HOST="https://github.com"
-          APATCH_PATH="/bmax121/KernelPatch.git"
-          git clone --depth=1 "${GIT_HOST}${APATCH_PATH}" /tmp/apatch_source
-          
-          # 3. Move the core elements into your local working directory 
-          cp -r /tmp/apatch_source/kpimg/* drivers/apatch/
-          rm -rf /tmp/apatch_source
-          
-          # 4. Generate local layout index files to satisfy the drivers/Kconfig verification hook
-          if [ ! -f drivers/apatch/Kconfig ]; then
-            echo 'menu "APatch Inline Core Config"' > drivers/apatch/Kconfig
-            echo 'config CONFIG_APATCH' >> drivers/apatch/Kconfig
-            echo '    bool "Compile APatch core elements directly into kernel"' >> drivers/apatch/Kconfig
-            echo '    default y' >> drivers/apatch/Kconfig
-            echo 'config CONFIG_KPM' >> drivers/apatch/Kconfig
-            echo '    bool "Enable Kernel Patch Modules support"' >> drivers/apatch/Kconfig
-            echo '    default y' >> drivers/apatch/Kconfig
-            echo 'endmenu' >> drivers/apatch/Kconfig
-          fi
-          
-          if [ ! -f drivers/apatch/Makefile ]; then
-            echo 'obj-$(CONFIG_APATCH) += apatch_engine.o' > drivers/apatch/Makefile
-            cat drivers/apatch/*.c > drivers/apatch/apatch_engine.c 2>/dev/null || touch drivers/apatch/apatch_engine.c
-          fi
-
-          # 5. Initialize the main compilation blueprint configuration file
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
           # ==============================================================================
-          # 6. FORCE CONFIGURATION OPTIONS FOR INDEPENDENT COMPILATION MAPS
+          # CONFIGURATION PROCESSING LINES FOR OFFICIAL APATCH DEPENDENCIES
           # ==============================================================================
-          ./scripts/config --file out/.config --enable CONFIG_APATCH
           ./scripts/config --file out/.config --enable CONFIG_KPM
-          ./scripts/config --file out/.config --enable CONFIG_KPROBES
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          ./scripts/config --file out/.config --enable CONFIG_KPROBES
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_MODULES
@@ -132,7 +101,6 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
                             
-          # 7. Apply settings back down onto the master olddefconfig map
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
@@ -143,6 +111,24 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             LLVM=1 LLVM_IAS=1 \
             Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+
+      - name: Embed APatch Core into Output Kernel Binary
+        run: |
+          # Pull the official kptools binary engine directly from release tags
+          KP_VERSION=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          curl -Lo kptools.zip "https://github.com{KP_VERSION}/kptools-linux-x86_64.zip"
+          unzip -q kptools.zip -d ./apatch-tools
+          chmod +x ./apatch-tools/kptools
+          
+          # Inject APatch engine hooks directly into your clean Image.gz
+          ./apatch-tools/kptools image patch \
+            -i out/arch/arm64/boot/Image.gz \
+            -o out/arch/arm64/boot/Image.gz-patched \
+            -s "MySecureSuperKeyPassword123" \
+            -kp ./apatch-tools/kpimg-aarch64
+            
+          mv out/arch/arm64/boot/Image.gz-patched out/arch/arm64/boot/Image.gz
+          echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
 
       - name: Package AnyKernel3 ZIP
         run: |
@@ -155,7 +141,6 @@ jobs:
           dtb="out/arch/arm64/boot/dtb.img"
           dtbo="out/arch/arm64/boot/dtbo.img"
           if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
-            # String stitching to prevent AnyKernel3 cloning cutoffs
             GIT_HOST="https://github.com"
             AK3_PATH="/surya-aosp/AnyKernel3"
             if ! git clone -q "${GIT_HOST}${AK3_PATH}" -b arise AnyKernel3; then
@@ -171,17 +156,36 @@ jobs:
             else
               echo "WARNING: rtw88_8812au.ko not found in build output!"
             fi
+            rtw_fw=$(find out -path '*rtw88/rtw8812a_fw.bin' | head -n1)
+            if [ -n "$rtw_fw" ]; then
+              mkdir -p AnyKernel3/vendor/firmware/rtw88
+              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
+            fi
+            mkdir -p AnyKernel3/system/etc/init
+            printf '%s\n' \
+              'on boot' \
+              '    insmod /system/lib/modules/rtw88_8812au.ko' \
+              '' \
+              'on post-fs-data' \
+              '    mkdir /config/usb/g1 0770 system system' \
+              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
+              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
+              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
+              '    write /config/usb/g1/os_desc/use 1' \
+              > AnyKernel3/system/etc/init/arise.rc
             
             cd AnyKernel3
-            zip -r3 "../$ZIPNAME" *
+            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
             cd ..
+            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
+            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
           else
-            echo "ERROR: Core output build assets missing."
+            echo "Compilation failed!"
             exit 1
           fi
 
-      - name: Upload Flashable Kernel Artifact
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Arise-Kernel-Surya
-          path: Arise-surya-*.zip
+          path: ${{ env.ZIPNAME }}
