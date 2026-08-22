@@ -113,7 +113,7 @@ jobs:
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
           CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           LLVM=1 LLVM_IAS=1 \
-          Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?'
+          Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?'  
 
       - name: Embed APatch Core into Output Kernel Binary
         env:
