@@ -107,11 +107,10 @@ jobs:
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
-      - - name: Build Kernel
+      # FIX 1: Removed duplicate dash that caused YAML syntax error
+      - name: Build Kernel
         run: |
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz
-          gzip -df out/arch/arm64/boot/Image.gz 
-          gzip -f out/arch/arm64/boot/Image
+          # FIX 2: Removed redundant pre-build gzip commands that wasted CI time
           make -j$(nproc --all) O=out ARCH=arm64 \
           KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -134,8 +133,10 @@ jobs:
           chmod +x ./apatch-tools/kptools
           
           # 3. Decompress Image.gz because kptools requires an uncompressed kernel image to patch
+          # FIX 3: Added rm -f and -df flag to prevent "already exists; not overwritten" error
           if [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            gzip -d out/arch/arm64/boot/Image.gz
+            rm -f out/arch/arm64/boot/Image
+            gzip -df out/arch/arm64/boot/Image.gz
           fi
           
           # 4. Inject APatch engine hooks using the correct CLI arguments
@@ -147,7 +148,8 @@ jobs:
             
           # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
           mv out/arch/arm64/boot/Image-patched out/arch/arm64/boot/Image
-          gzip out/arch/arm64/boot/Image
+          # FIX 4: Added -f flag to prevent gzip overwrite failure on repack
+          gzip -f out/arch/arm64/boot/Image
           
           echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
 
@@ -177,7 +179,8 @@ jobs:
             else
               echo "WARNING: rtw88_8812au.ko not found in build output!"
             fi
-            rtw_fw=$(find out -path '*rtw88/rtw8812a_fw.bin' | head -n1)
+            # FIX 5: Search entire workspace for firmware instead of just out/ directory
+            rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
             if [ -n "$rtw_fw" ]; then
               mkdir -p AnyKernel3/vendor/firmware/rtw88
               cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
