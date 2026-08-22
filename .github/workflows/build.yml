@@ -2,10 +2,15 @@ name: Build Arise Kernel (Feature-Complete 4.14.357)
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+      - arise  # Added your working kernel branch name if applicable
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Keeps the manual 'Run workflow' button active just in case
 
 jobs:
   build:
