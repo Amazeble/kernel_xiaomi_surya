@@ -7,9 +7,6 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-env:
-  SUSFS_BRANCH: susfs-main
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,10 +29,20 @@ jobs:
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
 
-      - name: Integrate SukiSU-Ultra + SUSFS
+      - name: Inject APatch Kernel Source Code
         run: |
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s ${{ env.SUSFS_BRANCH }}
-
+          # Clone official APatch kernel source patch
+          git clone --depth=1 https://github.com /tmp/apatch
+          mkdir -p drivers/apatch
+          cp -r /tmp/apatch/kernel/* drivers/apatch/
+          rm -rf /tmp/apatch
+          
+          # Link APatch engine to drivers compilation map
+          grep -q 'drivers/apatch/Kconfig' drivers/Kconfig || \
+            sed -i '/endmenu/i source "drivers/apatch/Kconfig"' drivers/Kconfig
+          grep -q 'apatch/' drivers/Makefile || \
+            echo 'obj-$(CONFIG_APATCH) += apatch/' >> drivers/Makefile
+          
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
           git clone --depth=1 --branch rebase-2-electric-boogaloo https://github.com/akabul0us/android_kernel_xiaomi_surya_nethunter.git /tmp/nethunter
@@ -60,30 +67,24 @@ jobs:
         run: |
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-          # SukiSU-Ultra configs (KPM enabled)
-          ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_SU
+          
+          # 1. APATCH INLINE COMPILATION ENGINE
+          ./scripts/config --file out/.config --enable CONFIG_APATCH
           ./scripts/config --file out/.config --enable CONFIG_KPM
+          
+          # 2. APATCH MECHANISMS (CRITICAL HOOKING & SYMBOLS)
+          ./scripts/config --file out/.config --enable CONFIG_KPROBES
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
-          ./scripts/config --file out/.config --disable CONFIG_KSU_DEBUG
-          ./scripts/config --file out/.config --enable CONFIG_KPROBES
+          
+          # 3. FILESYSTEMS & MODULE LOADING
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
+          
+          # 4. NETWORKING & HARDWARE DRIVERS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_SU_DEFAULT_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_DEL_SUS_KSU_DEFAULT_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_SU
           ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
@@ -108,15 +109,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
-          ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG
-          ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_FORCE
-          ./scripts/config --file out/.config --disable CONFIG_MODULE_SIG_ALL
-          ./scripts/config --file out/.config --disable CONFIG_MODVERSIONS
-          ./scripts/config --file out/.config --disable CONFIG_LTO
-          ./scripts/config --file out/.config --disable CONFIG_LTO_CLANG
-          ./scripts/config --file out/.config --disable CONFIG_CFI_CLANG
-          ./scripts/config --file out/.config --disable CONFIG_DEBUG_INFO_BTF
-          ./scripts/config --file out/.config --disable CONFIG_WERROR
+                            
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
@@ -135,52 +128,36 @@ jobs:
           if [ -n "$head" ]; then
             ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
           fi
+          
           kernel="out/arch/arm64/boot/Image.gz"
           dtb="out/arch/arm64/boot/dtb.img"
           dtbo="out/arch/arm64/boot/dtbo.img"
+          
           if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
-            if ! git clone -q https://github.com/surya-aosp/AnyKernel3 -b arise; then
-              echo "Failed to clone AnyKernel3!"
-              exit 1
-            fi
-            cp $kernel $dtb $dtbo AnyKernel3
+            git clone -q https://github.com/surya-aosp/AnyKernel3 -b arise
+            cp $kernel $dtb $dtbo AnyKernel3/
+            
+            # Locate and add built wireless modules
             rtw_mod=$(find out -name 'rtw88_8812au.ko' | head -n1)
             if [ -n "$rtw_mod" ]; then
               mkdir -p AnyKernel3/system/lib/modules
               cp "$rtw_mod" AnyKernel3/system/lib/modules/
             else
-              echo "WARNING: rtw88_8812au.ko not found in build output!"
+              echo "WARNING: rtw88_8812au.ko not found!"
             fi
-            rtw_fw=$(find out -path '*rtw88/rtw8812a_fw.bin' | head -n1)
-            if [ -n "$rtw_fw" ]; then
-              mkdir -p AnyKernel3/vendor/firmware/rtw88
-              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
-            fi
-            mkdir -p AnyKernel3/system/etc/init
-            printf '%s\n' \
-              'on boot' \
-              '    insmod /system/lib/modules/rtw88_8812au.ko' \
-              '' \
-              'on post-fs-data' \
-              '    mkdir /config/usb/g1 0770 system system' \
-              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
-              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
-              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
-              '    write /config/usb/g1/os_desc/use 1' \
-              > AnyKernel3/system/etc/init/arise.rc
-            rm -rf out/arch/arm64/boot
+            
+            # Finalize ZIP archive compression
             cd AnyKernel3
-            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
+            zip -r3 "../$ZIPNAME" *
             cd ..
-            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
-            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
+            echo "SUCCESS: $ZIPNAME packaged perfectly."
           else
-            echo "Compilation failed!"
+            echo "ERROR: Missing essential compilation outputs (Image.gz/DTB)."
             exit 1
           fi
 
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v5
+      - name: Upload Flashable Kernel Artifact
+        uses: actions/artifacts@v4
         with:
-          name: ${{ env.ZIPNAME }}
-          path: ${{ env.ZIPNAME }}
+          name: Arise-Kernel-Surya
+          path: Arise-surya-*.zip
