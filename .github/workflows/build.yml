@@ -109,26 +109,32 @@ jobs:
 
       - name: Embed APatch Core into Output Kernel Binary
         run: |
-          # Pull the latest release tag from the official KernelPatch API
+          # 1. Pull the latest release tag from the official KernelPatch API
           KP_VERSION=$(curl -s https://api.github.com/repos/bmax121/KernelPatch/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           echo "Using KernelPatch Version: $KP_VERSION"
           
-          # Download the standalone binaries directly from the release assets
+          # 2. Download the standalone binaries directly from the release assets
           mkdir -p ./apatch-tools
           curl -Lo ./apatch-tools/kptools "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kptools-linux"
           curl -Lo ./apatch-tools/kpimg-android "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kpimg-android"
           chmod +x ./apatch-tools/kptools
           
-          # Inject APatch engine hooks using the correct CLI arguments
-          # Note: kptools sometimes prefers uncompressed 'Image' files over 'Image.gz'. 
-          # If this step fails with a format error, change Image.gz to Image below and update the AnyKernel step accordingly.
+          # 3. Decompress Image.gz because kptools requires an uncompressed kernel image to patch
+          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
+            gzip -d out/arch/arm64/boot/Image.gz
+          fi
+          
+          # 4. Inject APatch engine hooks using the correct CLI arguments
           ./apatch-tools/kptools -p \
-            --image out/arch/arm64/boot/Image.gz \
-            --out out/arch/arm64/boot/Image.gz-patched \
+            --image out/arch/arm64/boot/Image \
+            --out out/arch/arm64/boot/Image-patched \
             --skey "MySecureSuperKeyPassword123" \
             --kpimg ./apatch-tools/kpimg-android
             
-          mv out/arch/arm64/boot/Image.gz-patched out/arch/arm64/boot/Image.gz
+          # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
+          mv out/arch/arm64/boot/Image-patched out/arch/arm64/boot/Image
+          gzip out/arch/arm64/boot/Image
+          
           echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
 
       - name: Package AnyKernel3 ZIP
