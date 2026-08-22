@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -30,13 +30,14 @@ jobs:
             git clone --depth=1 -b 17 "${GITLAB_HOST}${TC_PATH}" "$TC_DIR"
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
-          
+
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
           GIT_HOST="https://github.com"
           DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
           git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
           
+          mkdir -p drivers/net/wireless/realtek
           cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
           rm -rf /tmp/nethunter
           
@@ -45,8 +46,19 @@ jobs:
           find drivers/net/wireless/realtek/rtw88 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/RX_FLAG_NO_PSDU/0/g' {} +
           
           # Verify patches were applied
-          grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 && echo "WARNING: SN NOT PATCHED" || echo "SN PATCHED OK"
-          grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 && echo "WARNING: PSDU NOT PATCHED" || echo "PSDU PATCHED OK"
+          if grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 > /dev/null; then
+            echo "WARNING: SN NOT PATCHED"
+            exit 1
+          else
+            echo "SN PATCHED OK"
+          fi
+          
+          if grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 > /dev/null; then
+            echo "WARNING: PSDU NOT PATCHED"
+            exit 1
+          else
+            echo "PSDU PATCHED OK"
+          fi
           
           # Add Kconfig and Makefile entries
           grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
@@ -59,9 +71,6 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
-          # ==============================================================================
-          # CONFIGURATION PROCESSING LINES FOR OFFICIAL APATCH DEPENDENCIES
-          # ==============================================================================
           ./scripts/config --file out/.config --enable CONFIG_KPM
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
@@ -95,19 +104,20 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
-                            
+          
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
-        run: |
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
-            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+        run: bash -c 'make -j$(nproc --all) O=out ARCH=arm64 \
+          KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
+          CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+          CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+          LLVM=1 LLVM_IAS=1 \
+          Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?'
 
       - name: Embed APatch Core into Output Kernel Binary
+        env:
+          KP_SECURE_KEY: ${{ secrets.KP_SECURE_KEY }}
         run: |
           # 1. Pull the latest release tag from the official KernelPatch API
           KP_VERSION=$(curl -s https://api.github.com/repos/bmax121/KernelPatch/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -128,7 +138,7 @@ jobs:
           ./apatch-tools/kptools -p \
             --image out/arch/arm64/boot/Image \
             --out out/arch/arm64/boot/Image-patched \
-            --skey "MySecureSuperKeyPassword123" \
+            --skey "${KP_SECURE_KEY}" \
             --kpimg ./apatch-tools/kpimg-android
             
           # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
