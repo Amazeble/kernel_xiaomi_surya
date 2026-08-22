@@ -107,8 +107,11 @@ jobs:
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
-      - name: Build Kernel
+      - - name: Build Kernel
         run: |
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz
+          gzip -df out/arch/arm64/boot/Image.gz 
+          gzip -f out/arch/arm64/boot/Image
           make -j$(nproc --all) O=out ARCH=arm64 \
           KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
