@@ -37,7 +37,7 @@ jobs:
       - name: Inject APatch Kernel Source Code
         run: |
           # Clone official APatch kernel source patch
-          git clone --depth=1 https://github.com /tmp/apatch
+          git clone --depth=1 https://github.com/bmaxw/APatch.git /tmp/apatch
           mkdir -p drivers/apatch
           cp -r /tmp/apatch/kernel/* drivers/apatch/
           rm -rf /tmp/apatch
