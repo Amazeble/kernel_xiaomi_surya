@@ -1,9 +1,4 @@
-name: Google Nano Banana AI Assistant Models
-
-# ==============================================================================
-# SCRIPT METADATA & RESPONSIBILITY TRACKING
-# Name: Google Nano Banana AI Assistant Models
-# ==============================================================================
+name: ELISE KERNEL
 
 on:
   push:
@@ -114,18 +109,24 @@ jobs:
 
       - name: Embed APatch Core into Output Kernel Binary
         run: |
-          # Pull the official kptools binary engine directly from release tags
-          KP_VERSION=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          curl -Lo kptools.zip "https://github.com{KP_VERSION}/kptools-linux-x86_64.zip"
-          unzip -q kptools.zip -d ./apatch-tools
+          # Pull the latest release tag from the official KernelPatch API
+          KP_VERSION=$(curl -s https://api.github.com/repos/bmax121/KernelPatch/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Using KernelPatch Version: $KP_VERSION"
+          
+          # Download the standalone binaries directly from the release assets
+          mkdir -p ./apatch-tools
+          curl -Lo ./apatch-tools/kptools "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kptools-linux"
+          curl -Lo ./apatch-tools/kpimg-android "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kpimg-android"
           chmod +x ./apatch-tools/kptools
           
-          # Inject APatch engine hooks directly into your clean Image.gz
-          ./apatch-tools/kptools image patch \
-            -i out/arch/arm64/boot/Image.gz \
-            -o out/arch/arm64/boot/Image.gz-patched \
-            -s "MySecureSuperKeyPassword123" \
-            -kp ./apatch-tools/kpimg-aarch64
+          # Inject APatch engine hooks using the correct CLI arguments
+          # Note: kptools sometimes prefers uncompressed 'Image' files over 'Image.gz'. 
+          # If this step fails with a format error, change Image.gz to Image below and update the AnyKernel step accordingly.
+          ./apatch-tools/kptools -p \
+            --image out/arch/arm64/boot/Image.gz \
+            --out out/arch/arm64/boot/Image.gz-patched \
+            --skey "MySecureSuperKeyPassword123" \
+            --kpimg ./apatch-tools/kpimg-android
             
           mv out/arch/arm64/boot/Image.gz-patched out/arch/arm64/boot/Image.gz
           echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
