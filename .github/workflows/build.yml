@@ -66,6 +66,13 @@ jobs:
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
 
+      # --- NEW: NoMount Integration Step ---
+      - name: Integrate NoMount into Kernel Source
+        run: |
+          echo "Integrating NoMount (dev branch) into kernel source..."
+          curl -s https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+          echo "NoMount integration completed successfully!"
+
       - name: Generate & Force Feature Defconfig
         run: |
           mkdir -p out
@@ -105,12 +112,13 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
           
+          # --- NEW: Enable NoMount ---
+          ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+          
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
-      # FIX 1: Removed duplicate dash that caused YAML syntax error
       - name: Build Kernel
         run: |
-          # FIX 2: Removed redundant pre-build gzip commands that wasted CI time
           make -j$(nproc --all) O=out ARCH=arm64 \
           KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -133,7 +141,6 @@ jobs:
           chmod +x ./apatch-tools/kptools
           
           # 3. Decompress Image.gz because kptools requires an uncompressed kernel image to patch
-          # FIX 3: Added rm -f and -df flag to prevent "already exists; not overwritten" error
           if [ -f "out/arch/arm64/boot/Image.gz" ]; then
             rm -f out/arch/arm64/boot/Image
             gzip -df out/arch/arm64/boot/Image.gz
@@ -148,7 +155,6 @@ jobs:
             
           # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
           mv out/arch/arm64/boot/Image-patched out/arch/arm64/boot/Image
-          # FIX 4: Added -f flag to prevent gzip overwrite failure on repack
           gzip -f out/arch/arm64/boot/Image
           
           echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
@@ -179,7 +185,6 @@ jobs:
             else
               echo "WARNING: rtw88_8812au.ko not found in build output!"
             fi
-            # FIX 5: Search entire workspace for firmware instead of just out/ directory
             rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
             if [ -n "$rtw_fw" ]; then
               mkdir -p AnyKernel3/vendor/firmware/rtw88
