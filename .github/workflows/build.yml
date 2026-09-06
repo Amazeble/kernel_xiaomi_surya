@@ -91,18 +91,25 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
-          ./scripts/config --file out/.config --enable CONFIG_KPM
-          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
-          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
-          ./scripts/config --file out/.config --enable CONFIG_KPROBES
-          ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
-          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
-          ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
-          ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
-          ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
+          # --- KPROBES full dependency chain (per KernelSU Next docs) ---
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          ./scripts/config --file out/.config --enable CONFIG_TRACING
+          ./scripts/config --file out/.config --enable CONFIG_FTRACE
+          ./scripts/config --file out/.config --enable CONFIG_KPROBES
+          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
+          ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
+          
+          # --- KernelSU Next ---
+          ./scripts/config --file out/.config --enable CONFIG_KSU
+          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
+          
+          # --- Other features ---
+          ./scripts/config --file out/.config --enable CONFIG_KPM
+          ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
+          ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
           ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
@@ -129,19 +136,52 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
           
-          # --- Enable NoMount ---
+          # --- NoMount ---
           ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
-          # STRICT VERIFICATION: Fail immediately if KernelSU Next dependencies were dropped by olddefconfig
-          echo "Verifying KernelSU Next dependencies..."
-          grep -q "CONFIG_KSU=y" out/.config || { echo "FATAL: CONFIG_KSU is missing or disabled!"; exit 1; }
-          grep -q "CONFIG_KPROBES=y" out/.config || { echo "FATAL: CONFIG_KPROBES is missing or disabled!"; exit 1; }
-          grep -q "CONFIG_KPROBE_EVENTS=y" out/.config || { echo "FATAL: CONFIG_KPROBE_EVENTS is missing or disabled!"; exit 1; }
-          grep -q "CONFIG_KRETPROBES=y" out/.config || { echo "FATAL: CONFIG_KRETPROBES is missing or disabled!"; exit 1; }
-          grep -q "CONFIG_KSU_KPROBES_HOOK=y" out/.config || { echo "FATAL: CONFIG_KSU_KPROBES_HOOK is missing or disabled!"; exit 1; }
-          echo "All KernelSU dependencies verified successfully."
+          # --- STRICT VERIFICATION ---
+          echo "=== Verifying KernelSU Next dependencies ==="
+          MISSING=0
+          
+          if ! grep -q "CONFIG_KPROBES=y" out/.config; then
+            echo "FATAL: CONFIG_KPROBES was dropped by olddefconfig!"
+            echo "  -> Check 'make menuconfig' for KPROBES dependencies in your kernel tree."
+            echo "  -> Common causes: missing CONFIG_HAVE_KPROBES, CONFIG_KALLSYMS, or CONFIG_MODULES."
+            MISSING=1
+          fi
+          
+          if ! grep -q "CONFIG_KRETPROBES=y" out/.config; then
+            echo "FATAL: CONFIG_KRETPROBES was dropped by olddefconfig!"
+            MISSING=1
+          fi
+          
+          if ! grep -q "CONFIG_KPROBE_EVENTS=y" out/.config; then
+            echo "FATAL: CONFIG_KPROBE_EVENTS was dropped by olddefconfig!"
+            MISSING=1
+          fi
+          
+          if ! grep -q "CONFIG_KSU=y" out/.config; then
+            echo "FATAL: CONFIG_KSU is missing! KernelSU Next setup.sh may have failed."
+            MISSING=1
+          fi
+          
+          if ! grep -q "CONFIG_KSU_KPROBES_HOOK=y" out/.config; then
+            echo "FATAL: CONFIG_KSU_KPROBES_HOOK was dropped!"
+            echo "  -> Depends on: KPROBES + KRETPROBES + HAVE_SYSCALL_TRACEPOINTS"
+            echo "  -> If your kernel lacks HAVE_SYSCALL_TRACEPOINTS, use KSU_MANUAL_HOOK instead."
+            MISSING=1
+          fi
+          
+          if [ "$MISSING" -eq 1 ]; then
+            echo ""
+            echo "=== Dumping relevant .config lines for debugging ==="
+            grep -i "KPROBE\|KSU\|KRETPROBE\|TRACING\|FTRACE\|MODULES" out/.config || true
+            exit 1
+          fi
+          
+          echo "All KernelSU Next dependencies verified successfully."
 
       - name: Build Kernel
         run: |
