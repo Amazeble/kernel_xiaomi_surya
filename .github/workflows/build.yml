@@ -66,12 +66,19 @@ jobs:
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
 
-      # --- NEW: NoMount Integration Step ---
+      # --- NoMount Integration Step ---
       - name: Integrate NoMount into Kernel Source
         run: |
           echo "Integrating NoMount (dev branch) into kernel source..."
           curl -s https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
           echo "NoMount integration completed successfully!"
+
+      # --- KernelSU Next Integration Step ---
+      - name: Integrate KernelSU Next (Legacy) into Kernel Source
+        run: |
+          echo "Integrating KernelSU Next (legacy branch) into kernel source..."
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          echo "KernelSU Next integration completed successfully!"
 
       - name: Generate & Force Feature Defconfig
         run: |
@@ -82,6 +89,9 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KPROBES
+          ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
+          ./scripts/config --file out/.config --enable CONFIG_KSU
+          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBE_HOOKS
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_MODULES
@@ -112,7 +122,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
           
-          # --- NEW: Enable NoMount ---
+          # --- Enable NoMount ---
           ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
@@ -126,39 +136,6 @@ jobs:
           LLVM=1 LLVM_IAS=1 \
           Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
           
-      - name: Embed APatch Core into Output Kernel Binary
-        env:
-          KP_SECURE_KEY: ${{ secrets.KP_SECURE_KEY }}
-        run: |
-          # 1. Pull the latest release tag from the official KernelPatch API
-          KP_VERSION=$(curl -s https://api.github.com/repos/bmax121/KernelPatch/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "Using KernelPatch Version: $KP_VERSION"
-          
-          # 2. Download the standalone binaries directly from the release assets
-          mkdir -p ./apatch-tools
-          curl -Lo ./apatch-tools/kptools "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kptools-linux"
-          curl -Lo ./apatch-tools/kpimg-android "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kpimg-android"
-          chmod +x ./apatch-tools/kptools
-          
-          # 3. Decompress Image.gz because kptools requires an uncompressed kernel image to patch
-          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
-            rm -f out/arch/arm64/boot/Image
-            gzip -df out/arch/arm64/boot/Image.gz
-          fi
-          
-          # 4. Inject APatch engine hooks using the correct CLI arguments
-          ./apatch-tools/kptools -p \
-            --image out/arch/arm64/boot/Image \
-            --out out/arch/arm64/boot/Image-patched \
-            --skey "${KP_SECURE_KEY}" \
-            --kpimg ./apatch-tools/kpimg-android
-            
-          # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
-          mv out/arch/arm64/boot/Image-patched out/arch/arm64/boot/Image
-          gzip -f out/arch/arm64/boot/Image
-          
-          echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
-
       - name: Package AnyKernel3 ZIP
         run: |
           export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
