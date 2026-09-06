@@ -18,11 +18,14 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
+          set -euo pipefail
           sudo apt-get update
+          # If any package is missing or fails to install, this will immediately fail the workflow
           sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync dwarves
 
       - name: Setup AOSP Clang Toolchain
         run: |
+          set -euo pipefail
           TC_DIR="$(pwd)/tc/clang-498229"
           if [ ! -d "$TC_DIR" ]; then
             GITLAB_HOST="https://gitlab.com"
@@ -33,6 +36,7 @@ jobs:
 
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
+          set -euo pipefail
           GIT_HOST="https://github.com"
           DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
           git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
@@ -47,14 +51,14 @@ jobs:
           
           # Verify patches were applied
           if grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "WARNING: SN NOT PATCHED"
+            echo "ERROR: SN NOT PATCHED"
             exit 1
           else
             echo "SN PATCHED OK"
           fi
           
           if grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "WARNING: PSDU NOT PATCHED"
+            echo "ERROR: PSDU NOT PATCHED"
             exit 1
           else
             echo "PSDU PATCHED OK"
@@ -69,19 +73,22 @@ jobs:
       # --- NoMount Integration Step ---
       - name: Integrate NoMount into Kernel Source
         run: |
+          set -euo pipefail
           echo "Integrating NoMount (dev branch) into kernel source..."
-          curl -s https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
           echo "NoMount integration completed successfully!"
 
       # --- KernelSU Next Integration Step ---
       - name: Integrate KernelSU Next (Legacy) into Kernel Source
         run: |
+          set -euo pipefail
           echo "Integrating KernelSU Next (legacy branch) into kernel source..."
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
           echo "KernelSU Next integration completed successfully!"
 
       - name: Generate & Force Feature Defconfig
         run: |
+          set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
@@ -127,8 +134,17 @@ jobs:
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
+          # STRICT VERIFICATION: Fail immediately if KernelSU Next dependencies were dropped by olddefconfig
+          echo "Verifying KernelSU Next dependencies..."
+          grep -q "CONFIG_KSU=y" out/.config || { echo "FATAL: CONFIG_KSU is missing or disabled!"; exit 1; }
+          grep -q "CONFIG_KPROBES=y" out/.config || { echo "FATAL: CONFIG_KPROBES is missing or disabled!"; exit 1; }
+          grep -q "CONFIG_KPROBE_EVENTS=y" out/.config || { echo "FATAL: CONFIG_KPROBE_EVENTS is missing or disabled!"; exit 1; }
+          grep -q "CONFIG_KSU_KPROBE_HOOKS=y" out/.config || { echo "FATAL: CONFIG_KSU_KPROBE_HOOKS is missing or disabled!"; exit 1; }
+          echo "All KernelSU dependencies verified successfully."
+
       - name: Build Kernel
         run: |
+          set -euo pipefail
           make -j$(nproc --all) O=out ARCH=arm64 \
           KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
@@ -138,6 +154,7 @@ jobs:
           
       - name: Package AnyKernel3 ZIP
         run: |
+          set -euo pipefail
           export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
           head=$(git rev-parse --verify HEAD 2>/dev/null)
           if [ -n "$head" ]; then
