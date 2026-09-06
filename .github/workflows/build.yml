@@ -20,7 +20,6 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          # If any package is missing or fails to install, this will immediately fail the workflow
           sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync dwarves
 
       - name: Setup AOSP Clang Toolchain
@@ -97,8 +96,9 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_KPROBES
           ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
+          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBE_HOOKS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_MODULES
@@ -139,7 +139,8 @@ jobs:
           grep -q "CONFIG_KSU=y" out/.config || { echo "FATAL: CONFIG_KSU is missing or disabled!"; exit 1; }
           grep -q "CONFIG_KPROBES=y" out/.config || { echo "FATAL: CONFIG_KPROBES is missing or disabled!"; exit 1; }
           grep -q "CONFIG_KPROBE_EVENTS=y" out/.config || { echo "FATAL: CONFIG_KPROBE_EVENTS is missing or disabled!"; exit 1; }
-          grep -q "CONFIG_KSU_KPROBE_HOOKS=y" out/.config || { echo "FATAL: CONFIG_KSU_KPROBE_HOOKS is missing or disabled!"; exit 1; }
+          grep -q "CONFIG_KRETPROBES=y" out/.config || { echo "FATAL: CONFIG_KRETPROBES is missing or disabled!"; exit 1; }
+          grep -q "CONFIG_KSU_KPROBES_HOOK=y" out/.config || { echo "FATAL: CONFIG_KSU_KPROBES_HOOK is missing or disabled!"; exit 1; }
           echo "All KernelSU dependencies verified successfully."
 
       - name: Build Kernel
