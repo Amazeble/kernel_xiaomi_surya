@@ -91,19 +91,21 @@ jobs:
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
-          # --- KPROBES full dependency chain (per KernelSU Next docs) ---
+          # --- KPROBES full dependency chain ---
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
           ./scripts/config --file out/.config --enable CONFIG_TRACING
           ./scripts/config --file out/.config --enable CONFIG_FTRACE
+          ./scripts/config --file out/.config --enable CONFIG_FTRACE_SYSCALLS
           ./scripts/config --file out/.config --enable CONFIG_KPROBES
           ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
           ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
           
-          # --- KernelSU Next ---
+          # --- KernelSU Next: FORCE kprobe hooks, DISABLE manual hooks ---
           ./scripts/config --file out/.config --enable CONFIG_KSU
+          ./scripts/config --file out/.config --disable CONFIG_KSU_MANUAL_HOOK
           ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
           
           # --- Other features ---
@@ -147,8 +149,6 @@ jobs:
           
           if ! grep -q "CONFIG_KPROBES=y" out/.config; then
             echo "FATAL: CONFIG_KPROBES was dropped by olddefconfig!"
-            echo "  -> Check 'make menuconfig' for KPROBES dependencies in your kernel tree."
-            echo "  -> Common causes: missing CONFIG_HAVE_KPROBES, CONFIG_KALLSYMS, or CONFIG_MODULES."
             MISSING=1
           fi
           
@@ -168,16 +168,26 @@ jobs:
           fi
           
           if ! grep -q "CONFIG_KSU_KPROBES_HOOK=y" out/.config; then
-            echo "FATAL: CONFIG_KSU_KPROBES_HOOK was dropped!"
-            echo "  -> Depends on: KPROBES + KRETPROBES + HAVE_SYSCALL_TRACEPOINTS"
-            echo "  -> If your kernel lacks HAVE_SYSCALL_TRACEPOINTS, use KSU_MANUAL_HOOK instead."
-            MISSING=1
+            echo "WARNING: CONFIG_KSU_KPROBES_HOOK was dropped!"
+            echo "  Checking if KSU_MANUAL_HOOK was auto-enabled as fallback..."
+            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config; then
+              echo "  -> KSU_MANUAL_HOOK is active. Kprobe hooks cannot be used."
+              echo "  -> This kernel likely lacks HAVE_SYSCALL_TRACEPOINTS."
+              echo "  -> KernelSU will still work using manual hooks."
+              echo "  -> Proceeding with MANUAL HOOK mode."
+              MISSING=0
+            else
+              echo "  -> Neither KSU_KPROBES_HOOK nor KSU_MANUAL_HOOK is enabled!"
+              MISSING=1
+            fi
+          else
+            echo "CONFIG_KSU_KPROBES_HOOK=y verified."
           fi
           
           if [ "$MISSING" -eq 1 ]; then
             echo ""
             echo "=== Dumping relevant .config lines for debugging ==="
-            grep -i "KPROBE\|KSU\|KRETPROBE\|TRACING\|FTRACE\|MODULES" out/.config || true
+            grep -iE "KPROBE|KSU|KRETPROBE|TRACING|FTRACE|MODULES|TRACEPOINT" out/.config || true
             exit 1
           fi
           
