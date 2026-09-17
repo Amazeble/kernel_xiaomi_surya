@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Integrating KernelSU Next (legacy branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
           echo "KernelSU Next integration completed successfully!"
 
       - name: Generate & Force Feature Defconfig
