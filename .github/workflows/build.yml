@@ -2,9 +2,9 @@ name: ELISE KERNEL
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, lineage-23.2 ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, lineage-23.2 ]
   workflow_dispatch:
 
 jobs:
