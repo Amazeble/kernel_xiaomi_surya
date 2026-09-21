@@ -82,7 +82,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Integrating KernelSU Next (legacy branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
+          # This injects the precise v3.2.0 driver tree into your drivers/kernelsu/ directory
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0 legacy
           echo "KernelSU Next integration completed successfully!"
 
       - name: Generate & Force Feature Defconfig
@@ -100,7 +101,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_FTRACE
           ./scripts/config --file out/.config --enable CONFIG_FTRACE_SYSCALLS
           ./scripts/config --file out/.config --enable CONFIG_KPROBES
-          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
+          ./scripts/config --file out/.con   fig --enable CONFIG_KRETPROBES
           ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
           
           # --- KernelSU Next: FORCE kprobe hooks, DISABLE manual hooks ---
