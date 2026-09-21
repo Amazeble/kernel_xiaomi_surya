@@ -101,7 +101,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_FTRACE
           ./scripts/config --file out/.config --enable CONFIG_FTRACE_SYSCALLS
           ./scripts/config --file out/.config --enable CONFIG_KPROBES
-          ./scripts/config --file out/.con   fig --enable CONFIG_KRETPROBES
+          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
           ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
           
           # --- KernelSU Next: FORCE kprobe hooks, DISABLE manual hooks ---
