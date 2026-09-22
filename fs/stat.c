@@ -22,6 +22,9 @@
 #include <linux/version.h>
 #endif
 
+#ifdef CONFIG_ZEROMOUNT
+#include <linux/zeromount.h>
+#endif
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
 

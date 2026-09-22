@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
+#ifdef CONFIG_ZEROMOUNT
+#include <linux/zeromount.h>
+#endif
 /*
  *  linux/fs/readdir.c
  *
@@ -22,6 +25,10 @@
 #include <linux/compat.h>
 
 #include <linux/uaccess.h>
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+#include <linux/susfs_def.h>
+extern int susfs_sus_ino_for_filldir64(unsigned long ino);
+#endif
 
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 #include <linux/susfs_def.h>
@@ -234,6 +241,9 @@ SYSCALL_DEFINE3(old_readdir, unsigned int, fd,
 orig_flow:
 #endif
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	buf.sb = f.file->f_inode->i_sb;
+#endif
 	error = iterate_dir(f.file, &buf.ctx);
 	if (buf.result)
 		error = buf.result;
@@ -258,6 +268,9 @@ struct linux_dirent {
 struct getdents_callback {
 	struct dir_context ctx;
 	struct linux_dirent __user * current_dir;
+#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_ZEROMOUNT)
+	struct super_block *sb;
+#endif
 	struct linux_dirent __user * previous;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	struct super_block *sb;
@@ -281,12 +294,23 @@ static int filldir(struct dir_context *ctx, const char *name, int namlen,
 	struct inode *inode;
 #endif
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
+		return 0;
+	}
+#endif
+
+#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_ZEROMOUNT)
+	struct inode *inode;
+#endif
+
 	buf->error = verify_dirent_name(name, namlen);
 	if (unlikely(buf->error))
 		return buf->error;
 	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
+
 	d_ino = ino;
 	if (sizeof(d_ino) < sizeof(ino) && d_ino != ino) {
 		buf->error = -EOVERFLOW;
@@ -321,6 +345,23 @@ orig_flow:
 		if (__put_user(offset, &dirent->d_off))
 			goto efault;
 	}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (susfs_should_hide_dirent(buf->sb, ino, name, namlen)) {
+		buf->error = 0;
+		return 0;
+	}
+#endif
+#ifdef CONFIG_ZEROMOUNT
+	/* ZeroMount: Hide injected files from readdir */
+	inode = ilookup(buf->sb, ino);
+	if (inode) {
+		if (zeromount_is_injected_file(inode)) {
+			iput(inode);
+			return 0;
+		}
+		iput(inode);
+	}
+#endif
 	dirent = buf->current_dir;
 	if (__put_user(d_ino, &dirent->d_ino))
 		goto efault;
@@ -385,6 +426,9 @@ SYSCALL_DEFINE3(getdents, unsigned int, fd,
 orig_flow:
 #endif
 
+#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_ZEROMOUNT)
+	buf.sb = f.file->f_inode->i_sb;
+#endif
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;
@@ -402,6 +446,9 @@ orig_flow:
 struct getdents_callback64 {
 	struct dir_context ctx;
 	struct linux_dirent64 __user * current_dir;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	struct super_block *sb;
+#endif
 	struct linux_dirent64 __user * previous;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	struct super_block *sb;
@@ -424,6 +471,11 @@ static int filldir64(struct dir_context *ctx, const char *name, int namlen,
 	struct inode *inode;
 #endif
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
+		return 0;
+	}
+#endif
 	buf->error = verify_dirent_name(name, namlen);
 	if (unlikely(buf->error))
 		return buf->error;
@@ -572,6 +624,11 @@ static int compat_fillonedir(struct dir_context *ctx, const char *name,
 
 	if (buf->result)
 		return -EINVAL;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
+		return 0;
+	}
+#endif
 	buf->result = verify_dirent_name(name, namlen);
 	if (buf->result < 0)
 		return buf->result;
@@ -701,6 +758,11 @@ static int compat_filldir(struct dir_context *ctx, const char *name, int namlen,
 	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {
+		return 0;
+	}
+#endif
 	d_ino = ino;
 	if (sizeof(d_ino) < sizeof(ino) && d_ino != ino) {
 		buf->error = -EOVERFLOW;
@@ -735,6 +797,12 @@ orig_flow:
 		if (__put_user(offset, &dirent->d_off))
 			goto efault;
 	}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (susfs_should_hide_dirent(buf->sb, ino, name, namlen)) {
+		buf->error = 0;
+		return 0;
+	}
+#endif
 	dirent = buf->current_dir;
 	if (__put_user(d_ino, &dirent->d_ino))
 		goto efault;
@@ -799,6 +867,9 @@ COMPAT_SYSCALL_DEFINE3(getdents, unsigned int, fd,
 orig_flow:
 #endif
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	buf.sb = f.file->f_inode->i_sb;
+#endif
 	error = iterate_dir(f.file, &buf.ctx);
 	if (error >= 0)
 		error = buf.error;

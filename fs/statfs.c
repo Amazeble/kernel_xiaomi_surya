@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
+#ifdef CONFIG_ZEROMOUNT
+#include <linux/zeromount.h>
+#endif
 #include <linux/syscalls.h>
 #include <linux/export.h>
 #include <linux/fs.h>
