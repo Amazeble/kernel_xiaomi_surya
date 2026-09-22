@@ -7,6 +7,9 @@ on:
     branches: [ main, master, lineage-23.2 ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -72,7 +75,8 @@ jobs:
           echo "Integrating NoMount (dev branch) into kernel source..."
           curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
           echo "NoMount integration completed successfully!"
-                - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
+
+      - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
         run: |
           set -euo pipefail
           echo "[+] Cloning Amazeble/SUSFS-NonGKI-Patches..."
@@ -85,28 +89,17 @@ jobs:
           cd /tmp/susfs-nongki
           echo "y" | ./apply_patches.sh "$GITHUB_WORKSPACE" || true
           
-          echo "[+] Cleaning up..."
+          echo "[+] Cleaning up patch artifacts..."
           cd "$GITHUB_WORKSPACE"
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           rm -rf /tmp/susfs-nongki
           echo "[+] SUSFS 2.1 + ZeroMount patches applied."
-      - name: Apply SusFS 2.1 Patches with ZeroMount Stubs
+
+      - name: Create ZeroMount Stub Header
         run: |
           set -euo pipefail
-          echo "=== Applying SusFS 2.1 patches from Amazeble/SUSFS-NonGKI-Patches ==="
-          
-          # Clone the SusFS 2.1 patches
-          git clone https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-210
-          
-          # Apply all patches
-          for patch in /tmp/susfs-210/patches/*.patch; do
-            echo "Applying: $patch"
-            patch -p1 --forward < "$patch" || echo "Patch may have already been applied or has conflicts"
-          done
-          
-          # Create stub ZeroMount header to satisfy compiler
-          echo "=== Creating stub ZeroMount header ==="
+          echo "[+] Creating stub ZeroMount header for compilation compatibility..."
           cat > include/linux/zeromount.h << 'ZEROMOUNT_H_EOF'
 #ifndef _LINUX_ZEROMOUNT_H
 #define _LINUX_ZEROMOUNT_H
@@ -115,48 +108,45 @@ jobs:
 
 /*
  * ZeroMount stub header for kernel 4.14
- * ZeroMount VFS driver has not been backported to 4.14 yet.
- * These are dummy stubs to allow SusFS 2.1 patches to compile.
- * ZeroMount features will not be functional without the actual driver.
+ * Provides dummy functions so SUSFS 2.1 patches compile without
+ * the actual ZeroMount VFS driver. ZeroMount features will be
+ * non-functional but SUSFS 2.1 hiding features will work.
  */
 
-static inline void zeromount_spoof_mmap_metadata(struct inode *inode, 
-                                                   dev_t *dev, 
+static inline void zeromount_spoof_mmap_metadata(struct inode *inode,
+                                                   dev_t *dev,
                                                    unsigned long *ino)
 {
-    /* Stub: No-op without ZeroMount driver */
 }
 
 static inline int zeromount_is_hidden_path(const char *path)
 {
-    return 0; /* Not hidden */
+    return 0;
 }
 
 static inline struct filename *zeromount_getname_hook(struct filename *name)
 {
-    return name; /* Return unchanged */
+    return name;
 }
 
 static inline int zeromount_is_injected_file(struct inode *inode)
 {
-    return 0; /* Not injected */
+    return 0;
 }
 
 static inline int zeromount_is_traversal_allowed(struct inode *inode, int mask)
 {
-    return 1; /* Allow all */
+    return 1;
 }
 
 static inline int zeromount_stat_hook(struct filename *filename)
 {
-    return 0; /* No-op */
+    return 0;
 }
 
 #endif /* _LINUX_ZEROMOUNT_H */
 ZEROMOUNT_H_EOF
-          
-          echo "ZeroMount stub header created at include/linux/zeromount.h"
-          rm -rf /tmp/susfs-210
+          echo "[+] ZeroMount stub header created at include/linux/zeromount.h"
 
       - name: Generate and Force Feature Defconfig
         run: |
@@ -169,7 +159,7 @@ ZEROMOUNT_H_EOF
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
           ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
           
-          echo "=== Enabling SusFS 2.1 Features ==="
+          echo "=== Enabling SUSFS 2.1 Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -184,13 +174,13 @@ ZEROMOUNT_H_EOF
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
           
-          echo "=== Enabling SusFS 2.1 Enhanced Features ==="
+          echo "=== Enabling SUSFS 2.1 Enhanced Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_UNICODE_FILTER
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDDEN_NAME
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HARDENED
           
-          echo "=== Disabling ZeroMount (not available for 4.14) ==="
+          echo "=== Disabling ZeroMount (stub only, no driver) ==="
           ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
 
@@ -261,71 +251,71 @@ ZEROMOUNT_H_EOF
           
           echo "All dependencies verified successfully."
 
-      - name: Build Kernel
-        run: |
-          set -euo pipefail
-          make -j$(nproc --all) O=out ARCH=arm64 \
-          KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
-          CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-          CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-          LLVM=1 LLVM_IAS=1 \
-          Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
-          
-      - name: Package AnyKernel3 ZIP
-        run: |
-          set -euo pipefail
-          export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
-          head=$(git rev-parse --verify HEAD 2>/dev/null)
-          if [ -n "$head" ]; then
-            ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
-          fi
-          kernel="out/arch/arm64/boot/Image.gz"
-          dtb="out/arch/arm64/boot/dtb.img"
-          dtbo="out/arch/arm64/boot/dtbo.img"
-          if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
-            GIT_HOST="https://github.com"
-            AK3_PATH="/surya-aosp/AnyKernel3"
-            if ! git clone -q "${GIT_HOST}${AK3_PATH}" -b arise AnyKernel3; then
-              echo "Failed to clone AnyKernel3!"
-              exit 1
-            fi
-            
-            cp $kernel $dtb $dtbo AnyKernel3/
-            
-            mkdir -p AnyKernel3/system/lib/modules
-            find out -name '*.ko' -exec cp {} AnyKernel3/system/lib/modules/ \;
-            
-            rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
-            if [ -n "$rtw_fw" ]; then
-              mkdir -p AnyKernel3/vendor/firmware/rtw88
-              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
-            fi
-            
-            mkdir -p AnyKernel3/system/etc/init
-            printf '%s\n' \
-              'on boot' \
-              '    insmod /system/lib/modules/rtw88_8812au.ko' \
-              '' \
-              'on post-fs-data' \
-              '    mkdir /config/usb/g1 0770 system system' \
-              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
-              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
-              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
-              '    write /config/usb/g1/os_desc/use 1' \
-              > AnyKernel3/system/etc/init/arise.rc
-            
-            cd AnyKernel3
-            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
-            cd ..
-            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
-            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
-          else
-            echo "Compilation failed!"
-            exit 1
-          fi
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Arise-Kernel-Surya
-          path: ${{ env.ZIPNAME }}
+          - name: Build Kernel
+            run: |
+              set -euo pipefail
+              make -j$(nproc --all) O=out ARCH=arm64 \
+              KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
+              CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+              CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+              LLVM=1 LLVM_IAS=1 \
+              Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+    
+          - name: Package AnyKernel3 ZIP
+            run: |
+              set -euo pipefail
+              export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
+              head=$(git rev-parse --verify HEAD 2>/dev/null)
+              if [ -n "$head" ]; then
+                ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
+              fi
+              kernel="out/arch/arm64/boot/Image.gz"
+              dtb="out/arch/arm64/boot/dtb.img"
+              dtbo="out/arch/arm64/boot/dtbo.img"
+              if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
+                GIT_HOST="https://github.com"
+                AK3_PATH="/surya-aosp/AnyKernel3"
+                if ! git clone -q "${GIT_HOST}${AK3_PATH}" -b arise AnyKernel3; then
+                  echo "Failed to clone AnyKernel3!"
+                  exit 1
+                fi
+                
+                cp $kernel $dtb $dtbo AnyKernel3/
+                
+                mkdir -p AnyKernel3/system/lib/modules
+                find out -name '*.ko' -exec cp {} AnyKernel3/system/lib/modules/ \;
+                
+                rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
+                if [ -n "$rtw_fw" ]; then
+                  mkdir -p AnyKernel3/vendor/firmware/rtw88
+                  cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
+                fi
+                
+                mkdir -p AnyKernel3/system/etc/init
+                printf '%s\n' \
+                  'on boot' \
+                  '    insmod /system/lib/modules/rtw88_8812au.ko' \
+                  '' \
+                  'on post-fs-data' \
+                  '    mkdir /config/usb/g1 0770 system system' \
+                  '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
+                  '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
+                  '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
+                  '    write /config/usb/g1/os_desc/use 1' \
+                  > AnyKernel3/system/etc/init/arise.rc
+                
+                cd AnyKernel3
+                zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
+                cd ..
+                echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
+                echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
+              else
+                echo "Compilation failed!"
+                exit 1
+              fi
+    
+          - name: Upload Build Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: Arise-Kernel-Surya
+              path: ${{ env.ZIPNAME }}
