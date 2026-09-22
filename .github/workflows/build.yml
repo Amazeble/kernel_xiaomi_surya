@@ -72,7 +72,25 @@ jobs:
           echo "Integrating NoMount (dev branch) into kernel source..."
           curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
           echo "NoMount integration completed successfully!"
-
+                - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
+        run: |
+          set -euo pipefail
+          echo "[+] Cloning Amazeble/SUSFS-NonGKI-Patches..."
+          git clone https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-nongki
+          
+          echo "[+] Making apply_patches.sh executable..."
+          chmod +x /tmp/susfs-nongki/apply_patches.sh
+          
+          echo "[+] Applying patches to kernel source..."
+          cd /tmp/susfs-nongki
+          echo "y" | ./apply_patches.sh "$GITHUB_WORKSPACE" || true
+          
+          echo "[+] Cleaning up..."
+          cd "$GITHUB_WORKSPACE"
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
+          rm -rf /tmp/susfs-nongki
+          echo "[+] SUSFS 2.1 + ZeroMount patches applied."
       - name: Apply SusFS 2.1 Patches with ZeroMount Stubs
         run: |
           set -euo pipefail
