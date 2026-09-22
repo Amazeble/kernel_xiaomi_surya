@@ -17,11 +17,11 @@ jobs:
         run: |
           echo "[+] Injecting KernelSU-Next v3.2.0-legacy..."
           # Fetch official installer logic
-          curl -LSs "https://githubusercontent.com" | bash -s v3.2.0-legacy
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0-legacy
           
           # Force freeze to the legacy-susfs-v2 patched variant for seamless hook integration
           cd KernelSU
-          git remote add next-susfs https://github.com
+          git remote add next-susfs https://github.com/sidex15/KernelSU-Next
           git fetch next-susfs legacy-susfs-v2
           git checkout next-susfs/legacy-susfs-v2
           cd ..
@@ -29,12 +29,12 @@ jobs:
       - name: Download SusFS and Inject to drivers/
         run: |
           echo "[+] Downloading SusFS kernel-4.14 architecture assets..."
-          git clone https://gitlab.com -b kernel-4.14 susfs_source
+          git clone https://gitlab.com/simonpunk/susfs4ksu -b kernel-4.14 susfs_source
           
-          # Create targets and isolate core assets from fs/ to drivers/
+          # Create targets and isolate core assets from kernel_patches/ to drivers/
           mkdir -p drivers/susfs
-          cp susfs_source/kernel/fs/susfs.c drivers/susfs/
-          cp susfs_source/kernel/include/linux/susfs.h include/linux/
+          cp susfs_source/kernel_patches/fs/susfs.c drivers/susfs/
+          cp susfs_source/kernel_patches/include/linux/susfs.h include/linux/
           
           # Hook custom folder dynamically into core Kbuild engines
           echo "obj-y += susfs.o" > drivers/susfs/Makefile
@@ -63,16 +63,23 @@ jobs:
             echo "[!] Error: sucompat.c file not found to bridge hooks." && exit 1
           fi
 
-      - name: Auto-Apply SusFS File System Patches
+      - name: Auto-Apply SusFS File System Patches (v2.1.0 Upgrade)
         run: |
           echo "[+] Applying core kernel system file modifications..."
           # Apply the 4.14 base engine structural patch to the kernel tree root
-          if [ -f "susfs_source/50_add_susfs_in_kernel-4.14.patch" ]; then
-            patch -p1 < susfs_source/50_add_susfs_in_kernel-4.14.patch
+          if [ -f "susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch" ]; then
+            patch -p1 < susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch
           fi
           
+          # Upgrade to SusFS v2.1.0 for Non-GKI kernels (Brings advanced features to 4.14)
+          echo "[+] Upgrading SusFS to v2.1.0 via Non-GKI patches..."
+          git clone https://github.com/Mafiadan6/SUSFS-NonGKI-Patches susfs_v210
+          for patch in susfs_v210/patches/*.patch; do
+            patch -p1 < "$patch" || true
+          done
+          
           # Clean up download residue workspace
-          rm -rf susfs_source
+          rm -rf susfs_source susfs_v210
 
       - name: Update Kernel Defconfig Flags
         run: |
@@ -91,6 +98,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU/ arch/arm64/configs/surya_defconfig fs/ open.c stat.c || true
-          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS to drivers tree, and fix manual VFS hook bindings"
+          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU/ arch/arm64/configs/surya_defconfig fs/ || true
+          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS v2.1.0 to drivers tree, and fix manual VFS hook bindings"
           git push origin lineage-23.2
