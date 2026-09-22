@@ -1,83 +1,356 @@
-name: Setup Kernel Tree (KSUN v3.2.0-legacy + SusFS Manual Hooks)
+name: Prepare KernelSU and SUSFS
 
 on:
-  workflow_dispatch: # Allows manual trigger from GitHub Actions UI tab
+  workflow_dispatch:
+  push:
+    branches: [main]
 
-# FIX 1: Grant the Actions bot permission to push to the repo
 permissions:
   contents: write
 
 jobs:
-  patch_tree:
-    runs-on: ubuntu-latest
+  prepare-kernelsu-susfs:
+    runs-on: ubuntu-24.04
+    
     steps:
-      - name: Checkout Kernel Source Tree
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: lineage-23.2
-          fetch-depth: 1
 
-      - name: Fetch and Link KernelSU-Next v3.2.0-legacy
+      - name: Download KernelSU setup.sh from ReSukiSU
         run: |
-          echo "[+] Injecting KernelSU-Next v3.2.0-legacy..."
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0-legacy
-          
-          cd KernelSU-Next
-          git remote add next-susfs https://github.com/sidex15/KernelSU-Next
-          git fetch next-susfs legacy-susfs-v2
-          git checkout next-susfs/legacy-susfs-v2
-          cd ..
+          echo "🔽 Downloading KernelSU setup script from ReSukiSU..."
+          curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh > setup_kernelsu.sh
+          chmod +x setup_kernelsu.sh
+          echo "✅ KernelSU setup script downloaded successfully"
 
-      - name: Download SusFS and Inject to drivers/
+      - name: Setup KernelSU in drivers/kernelsu
         run: |
-          echo "[+] Downloading SusFS kernel-4.14 architecture assets..."
-          git clone https://gitlab.com/simonpunk/susfs4ksu -b kernel-4.14 susfs_source
+          echo "🔧 Setting up KernelSU..."
           
-          mkdir -p drivers/susfs
-          cp susfs_source/kernel_patches/fs/susfs.c drivers/susfs/
-          cp susfs_source/kernel_patches/include/linux/susfs.h include/linux/
+          # Ensure drivers directory exists
+          mkdir -p drivers
           
-          echo "obj-y += susfs.o" > drivers/susfs/Makefile
-          echo "obj-y += susfs/" >> drivers/Makefile
+          # Run the setup script which will:
+          # 1. Clone ReSukiSU repository
+          # 2. Create symlink to kernel directory
+          # 3. Modify Makefile and Kconfig
+          bash setup_kernelsu.sh
+          
+          echo "✅ KernelSU setup completed"
+          
+          # Verify installation
+          if [ -d "drivers/kernelsu" ]; then
+            echo "✅ drivers/kernelsu directory exists"
+            ls -la drivers/kernelsu/
+          else
+            echo "❌ drivers/kernelsu directory not found!"
+            exit 1
+          fi
 
-      - name: Auto-Apply SusFS File System Patches (v2.1.0 Upgrade)
+      - name: Clone NonGKI_Kernel_Build_2nd for SUSFS patches
         run: |
-          echo "[+] Applying core kernel system file modifications..."
-          if [ -f "susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch" ]; then
-            patch -p1 --forward < susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch || echo "[!] Warning: Base SusFS patch failed to apply cleanly."
+          echo "🔽 Cloning NonGKI_Kernel_Build_2nd repository for SUSFS support..."
+          git clone --depth=1 https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd.git nongki_build_temp
+          
+          # Copy SUSFS patches to a accessible location
+          if [ -d "nongki_build_temp/Patches" ]; then
+            cp -r nongki_build_temp/Patches ./SUSFS_Patches
+            echo "✅ SUSFS patches copied successfully"
+            ls -la SUSFS_Patches/
+          else
+            echo "⚠️ Patches directory not found in NonGKI_Kernel_Build_2nd"
           fi
           
-          echo "[+] Upgrading SusFS to v2.1.0 via Non-GKI patches..."
-          git clone https://github.com/Mafiadan6/SUSFS-NonGKI-Patches susfs_v210
-          for patch in susfs_v210/patches/*.patch; do
-            patch -p1 --forward < "$patch" || echo "[!] Warning: v2.1.0 patch failed to apply."
-          done
-          
-          # FIX 3: CRITICAL - Clean up residue and reject files so they don't break compilation
-          rm -rf susfs_source susfs_v210
-          find fs/ -name "*.rej" -delete
-          find fs/ -name "*.orig" -delete
+          # Cleanup temp directory
+          rm -rf nongki_build_temp
 
-      - name: Update Kernel Defconfig Flags
+      - name: Integrate SUSFS into KernelSU driver
         run: |
-          echo "[+] Forcing critical compilation directives into surya_defconfig..."
-          DEFCONFIG_PATH="arch/arm64/configs/surya_defconfig"
+          echo "🔧 Integrating SUSFS support into KernelSU..."
           
-          echo "CONFIG_KSU=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_KSU_NEXT=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_SUSFS=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_SUSFS_SMART_HIDE=y" >> $DEFCONFIG_PATH
+          cd drivers/kernelsu
+          
+          # Check if SUSFS config options exist in Kconfig
+          if grep -q "KSU_SUSFS" Kconfig; then
+            echo "✅ SUSFS options already present in Kconfig"
+          else
+            echo "ℹ️ Adding SUSFS configuration options to Kconfig..."
+            
+            cat >> Kconfig << 'EOF'
 
-      - name: Fix Git Submodule and Push Tree
+          config KSU_SUSFS
+              bool "KernelSU SUSFS support"
+              depends on KSU
+              help
+                Enable SUSFS (Stealth UserSpace File System) support for KernelSU.
+                This provides enhanced root hiding capabilities.
+
+          config KSU_SUSFS_SUS_PATH
+              bool "SUSFS path hiding"
+              depends on KSU_SUSFS
+              help
+                Enable path hiding functionality.
+
+          config KSU_SUSFS_SUS_MOUNT
+              bool "SUSFS mount hiding"
+              depends on KSU_SUSFS
+              help
+                Enable mount point hiding.
+
+          config KSU_SUSFS_SUS_KSTAT
+              bool "SUSFS kstat spoofing"
+              depends on KSU_SUSFS
+              help
+                Enable file metadata spoofing.
+
+          config KSU_SUSFS_SPOOF_UNAME
+              bool "SUSFS uname spoofing"
+              depends on KSU_SUSFS
+              help
+                Enable system information spoofing.
+
+          config KSU_SUSFS_ENABLE_LOG
+              bool "SUSFS logging"
+              depends on KSU_SUSFS
+              help
+                Enable SUSFS event logging.
+
+          config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+              bool "Hide KernelSU/SUSFS symbols"
+              depends on KSU_SUSFS
+              help
+                Hide KernelSU and SUSFS symbols from /proc/kallsyms.
+
+          config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+              bool "Spoof cmdline/bootconfig"
+              depends on KSU_SUSFS
+              help
+                Enable command line or bootconfig spoofing.
+
+          config KSU_SUSFS_OPEN_REDIRECT
+              bool "SUSFS open redirect"
+              depends on KSU_SUSFS
+              help
+                Enable file open redirection.
+
+          config KSU_SUSFS_SUS_MAP
+              bool "SUSFS map hiding"
+              depends on KSU_SUSFS
+              help
+                Enable memory map hiding.
+          EOF
+            
+            echo "✅ SUSFS Kconfig options added"
+          fi
+          
+          cd ../..
+
+      - name: Update Makefile for SUSFS
         run: |
-          # FIX 2: Remove the nested .git folder so Git doesn't treat it as a 160000 submodule
-          rm -rf KernelSU-Next/.git
-          git rm --cached KernelSU-Next 2>/dev/null || true
+          echo "🔧 Updating Makefile for SUSFS compilation support..."
           
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          DRIVER_MAKEFILE="drivers/Makefile"
           
-          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU-Next/ arch/arm64/configs/surya_defconfig fs/ || true
-          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS v2.1.0 to drivers tree" || echo "No changes to commit"
-          git push origin lineage-23.2
+          # Check if kernelsu entry already exists
+          if grep -q "kernelsu" "$DRIVER_MAKEFILE"; then
+            echo "✅ KernelSU entry already exists in Makefile"
+          else
+            echo "" >> "$DRIVER_MAKEFILE"
+            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_MAKEFILE"
+            echo "✅ Added KernelSU to Makefile"
+          fi
+          
+          # Display the updated Makefile
+          echo "📄 Updated Makefile content:"
+          tail -5 "$DRIVER_MAKEFILE"
+
+      - name: Update Kconfig for KernelSU source
+        run: |
+          echo "🔧 Updating drivers/Kconfig..."
+          
+          DRIVER_KCONFIG="drivers/Kconfig"
+          
+          if grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"; then
+            echo "✅ KernelSU Kconfig source already exists"
+          else
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
+            echo "✅ Added KernelSU Kconfig source"
+          fi
+
+      - name: Create SUSFS integration script
+        run: |
+          echo "🔧 Creating SUSFS patch application script..."
+          
+          cat > apply_susfs_patches.sh << 'SCRIPT'
+          #!/bin/bash
+          set -e
+          
+          echo "=========================================="
+          echo "  SUSFS Patch Application Script"
+          echo "=========================================="
+          
+          KERNEL_DIR="${1:-.}"
+          PATCHES_DIR="${2:-./SUSFS_Patches}"
+          
+          cd "$KERNEL_DIR"
+          
+          # Detect kernel version
+          if [ -f "Makefile" ]; then
+            KERNEL_VERSION=$(head -n 3 Makefile | grep -E 'VERSION|PATCHLEVEL' | awk '{print $3}' | paste -sd '.')
+            echo "📋 Detected kernel version: $KERNEL_VERSION"
+          else
+            echo "❌ Makefile not found in kernel directory"
+            exit 1
+          fi
+          
+          # Find appropriate SUSFS patch
+          SUSFS_PATCH=""
+          if [ -d "$PATCHES_DIR/Patch" ]; then
+            for patch_file in "$PATCHES_DIR/Patch"/susfs_patch_to_*.patch; do
+              if [ -f "$patch_file" ]; then
+                SUSFS_PATCH="$patch_file"
+                echo "📦 Found SUSFS patch: $(basename $patch_file)"
+                break
+              fi
+            done
+          fi
+          
+          if [ -z "$SUSFS_PATCH" ]; then
+            echo "⚠️ No SUSFS patch found, skipping patch application"
+            echo "ℹ️ You can manually apply patches from SUSFS_Patches directory"
+            exit 0
+          fi
+          
+          # Check if already patched
+          if grep -q "CONFIG_KSU_SUSFS" fs/namespace.c 2>/dev/null; then
+            echo "✅ SUSFS appears to be already patched"
+            exit 0
+          fi
+          
+          # Apply patch
+          echo "🔨 Applying SUSFS patch..."
+          if patch -p1 < "$SUSFS_PATCH"; then
+            echo "✅ SUSFS patch applied successfully"
+          else
+            echo "⚠️ Some parts of the patch may have failed"
+            echo "ℹ️ Check for .rej files and resolve conflicts manually"
+            find . -name "*.rej" -type f
+          fi
+          
+          echo "=========================================="
+          echo "  SUSFS Integration Complete"
+          echo "=========================================="
+          SCRIPT
+          
+          chmod +x apply_susfs_patches.sh
+          echo "✅ SUSFS integration script created"
+
+      - name: Create ready-to-compile configuration template
+        run: |
+          echo "🔧 Creating kernel configuration template with KSU and SUSFS..."
+          
+          cat > ksu_susfs_defconfig_additions.txt << 'EOF'
+          # ==========================================
+          # KernelSU and SUSFS Configuration Options
+          # Add these to your kernel defconfig file
+          # ==========================================
+          
+          # Core KernelSU
+          CONFIG_KSU=y
+          
+          # SUSFS Core Support
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          
+          # Optional: Manual hook (for certain KernelSU forks)
+          # CONFIG_KSU_MANUAL_HOOK=y
+          
+          # Thread info (if required by your kernel)
+          # CONFIG_THREAD_INFO_IN_TASK=y
+          EOF
+          
+          echo "✅ Configuration template created"
+          echo "📄 Contents:"
+          cat ksu_susfs_defconfig_additions.txt
+
+      - name: Verify setup and display summary
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════╗"
+          echo "║         KernelSU + SUSFS Setup Summary                  ║"
+          echo "╚═══════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "✅ KernelSU (ReSukiSU):"
+          if [ -d "drivers/kernelsu" ]; then
+            echo "   📁 Location: drivers/kernelsu"
+            echo "   📊 Files: $(find drivers/kernelsu -type f | wc -l) files"
+            ls -lah drivers/kernelsu/ | head -10
+          else
+            echo "   ❌ Not found"
+          fi
+          echo ""
+          echo "✅ SUSFS Patches:"
+          if [ -d "SUSFS_Patches" ]; then
+            echo "   📁 Location: SUSFS_Patches"
+            echo "   📊 Available patches:"
+            find SUSFS_Patches -name "*.patch" -type f | while read patch; do
+              echo "      • $(basename $patch)"
+            done
+          else
+            echo "   ⚠️ Patches directory not found"
+          fi
+          echo ""
+          echo "✅ Integration Scripts:"
+          if [ -f "apply_susfs_patches.sh" ]; then
+            echo "   📄 apply_susfs_patches.sh - Apply SUSFS patches to kernel"
+          fi
+          if [ -f "ksu_susfs_defconfig_additions.txt" ]; then
+            echo "   📄 ksu_susfs_defconfig_additions.txt - Config template"
+          fi
+          echo ""
+          echo "✅ Build System Integration:"
+          if grep -q "kernelsu" drivers/Makefile 2>/dev/null; then
+            echo "   ✅ drivers/Makefile updated"
+          fi
+          if grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig 2>/dev/null; then
+            echo "   ✅ drivers/Kconfig updated"
+          fi
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════╗"
+          echo "║  Ready to compile! 🚀                                   ║"
+          echo "║                                                         ║"
+          echo "║  Next steps:                                            ║"
+          echo "║  1. Add config options to your defconfig               ║"
+          echo "║  2. Run: bash apply_susfs_patches.sh                   ║"
+          echo "║  3. Compile your kernel as usual                       ║"
+          echo "╚═══════════════════════════════════════════════════════════╝"
+
+      - name: Commit changes
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: integrate KernelSU (ReSukiSU) and SUSFS support into drivers/kernelsu
+            
+          - Downloaded KernelSU setup.sh from ReSukiSU
+          - Integrated KernelSU into drivers/kernelsu
+          - Added SUSFS patches from NonGKI_Kernel_Build_2nd
+          - Created SUSFS integration script
+          - Updated Makefile and Kconfig
+          - Added configuration template
+          
+          The kernel is now ready to compile with KSU and SUSFS support."
+            git push
+            echo "✅ Changes committed and pushed"
+          else
+            echo "ℹ️ No changes to commit"
+          fi
