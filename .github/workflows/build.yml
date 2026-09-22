@@ -77,22 +77,13 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
           echo "NoMount integration completed successfully!"
 
-      # --- KernelSU Next Integration Step ---
-      - name: Integrate KernelSU Next (Legacy) into Kernel Source
-        run: |
-          set -euo pipefail
-          echo "Integrating KernelSU Next (legacy branch) into kernel source..."
-          # This injects the precise v3.2.0 driver tree into your drivers/kernelsu/ directory
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0 legacy
-          echo "KernelSU Next integration completed successfully!"
-
       - name: Generate & Force Feature Defconfig
         run: |
           set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
-          # --- KPROBES full dependency chain ---
+          # --- KPROBES full dependency chain (kept for general kernel tracing) ---
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
           ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
@@ -104,33 +95,53 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
           ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
           
-          # --- KernelSU Next: FORCE kprobe hooks, DISABLE manual hooks ---
+          # --- KernelSU Next: FORCE MANUAL HOOKS (Matches Setup Script) ---
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --disable CONFIG_KSU_MANUAL_HOOK
-          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
+          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
+          ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
           
+          # --- SusFS Features ---
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
+
           # --- Other features ---
           ./scripts/config --file out/.config --enable CONFIG_KPM
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
-          ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
-          ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS
-          ./scripts/config --file out/.config --enable CONFIG_USB_F_FS
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_UEVENT
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_RNDIS
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_MASS_STORAGE
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_HID
-          ./scripts/config --file out/.config --enable CONFIG_USB_F_RNDIS
-          ./scripts/config --file out/.config --enable CONFIG_USB_F_MASS_STORAGE
-          ./scripts/config --file out/.config --enable CONFIG_USB_F_HID
-          ./scripts/config --file out/.config --enable CONFIG_BT
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_BCM
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_RTL
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_MTK
+          
+          # --- USB & Bluetooth as MODULES ---
+          ./scripts/config --file out/.config --module CONFIG_USB_GADGET
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
+          ./scripts/config --file out/.config --module CONFIG_USB_LIBCOMPOSITE
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_FS
+          ./scripts/config --file out/.config --module CONFIG_USB_F_FS
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_UEVENT
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_RNDIS
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_MASS_STORAGE
+          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_HID
+          ./scripts/config --file out/.config --module CONFIG_USB_F_RNDIS
+          ./scripts/config --file out/.config --module CONFIG_USB_F_MASS_STORAGE
+          ./scripts/config --file out/.config --module CONFIG_USB_F_HID
+          
+          ./scripts/config --file out/.config --module CONFIG_BT
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_BCM
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_RTL
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_MTK
+          
           ./scripts/config --file out/.config --enable CONFIG_CFG80211
           ./scripts/config --file out/.config --enable CONFIG_MAC80211
           ./scripts/config --file out/.config --enable CONFIG_RTW88
@@ -145,54 +156,34 @@ jobs:
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
           # --- STRICT VERIFICATION ---
-          echo "=== Verifying KernelSU Next dependencies ==="
+          echo "=== Verifying KernelSU Next & SusFS dependencies ==="
           MISSING=0
           
-          if ! grep -q "CONFIG_KPROBES=y" out/.config; then
-            echo "FATAL: CONFIG_KPROBES was dropped by olddefconfig!"
-            MISSING=1
-          fi
-          
-          if ! grep -q "CONFIG_KRETPROBES=y" out/.config; then
-            echo "FATAL: CONFIG_KRETPROBES was dropped by olddefconfig!"
-            MISSING=1
-          fi
-          
-          if ! grep -q "CONFIG_KPROBE_EVENTS=y" out/.config; then
-            echo "FATAL: CONFIG_KPROBE_EVENTS was dropped by olddefconfig!"
-            MISSING=1
-          fi
-          
           if ! grep -q "CONFIG_KSU=y" out/.config; then
-            echo "FATAL: CONFIG_KSU is missing! KernelSU Next setup.sh may have failed."
+            echo "FATAL: CONFIG_KSU is missing!"
             MISSING=1
           fi
           
-          if ! grep -q "CONFIG_KSU_KPROBES_HOOK=y" out/.config; then
-            echo "WARNING: CONFIG_KSU_KPROBES_HOOK was dropped!"
-            echo "  Checking if KSU_MANUAL_HOOK was auto-enabled as fallback..."
-            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config; then
-              echo "  -> KSU_MANUAL_HOOK is active. Kprobe hooks cannot be used."
-              echo "  -> This kernel likely lacks HAVE_SYSCALL_TRACEPOINTS."
-              echo "  -> KernelSU will still work using manual hooks."
-              echo "  -> Proceeding with MANUAL HOOK mode."
-              MISSING=0
-            else
-              echo "  -> Neither KSU_KPROBES_HOOK nor KSU_MANUAL_HOOK is enabled!"
-              MISSING=1
-            fi
+          if ! grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config; then
+            echo "FATAL: CONFIG_KSU_MANUAL_HOOK is missing or dropped!"
+            MISSING=1
           else
-            echo "CONFIG_KSU_KPROBES_HOOK=y verified."
+            echo "CONFIG_KSU_MANUAL_HOOK=y verified."
+          fi
+          
+          if ! grep -q "CONFIG_KSU_SUSFS=y" out/.config; then
+            echo "FATAL: CONFIG_KSU_SUSFS is missing!"
+            MISSING=1
           fi
           
           if [ "$MISSING" -eq 1 ]; then
             echo ""
             echo "=== Dumping relevant .config lines for debugging ==="
-            grep -iE "KPROBE|KSU|KRETPROBE|TRACING|FTRACE|MODULES|TRACEPOINT" out/.config || true
+            grep -iE "KSU|SUSFS|MANUAL_HOOK" out/.config || true
             exit 1
           fi
           
-          echo "All KernelSU Next dependencies verified successfully."
+          echo "All dependencies verified successfully."
 
       - name: Build Kernel
         run: |
@@ -224,18 +215,17 @@ jobs:
             fi
             
             cp $kernel $dtb $dtbo AnyKernel3/
-            rtw_mod=$(find out -name 'rtw88_8812au.ko' | head -n1)
-            if [ -n "$rtw_mod" ]; then
-              mkdir -p AnyKernel3/system/lib/modules
-              cp "$rtw_mod" AnyKernel3/system/lib/modules/
-            else
-              echo "WARNING: rtw88_8812au.ko not found in build output!"
-            fi
+            
+            # Copy all compiled modules (Wi-Fi, BT, USB) to AnyKernel3
+            mkdir -p AnyKernel3/system/lib/modules
+            find out -name '*.ko' -exec cp {} AnyKernel3/system/lib/modules/ \;
+            
             rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
             if [ -n "$rtw_fw" ]; then
               mkdir -p AnyKernel3/vendor/firmware/rtw88
               cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
             fi
+            
             mkdir -p AnyKernel3/system/etc/init
             printf '%s\n' \
               'on boot' \
