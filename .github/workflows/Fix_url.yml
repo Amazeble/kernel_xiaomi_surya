@@ -1,0 +1,33 @@
+import os
+
+def repair_meta_workflow():
+    # Target the workflow file we generated previously
+    fixer_workflow_path = ".github/workflows/fix-urls.yml"
+    
+    if not os.path.exists(fixer_workflow_path):
+        print(f"❌ Error: Cannot find the fixer script at {fixer_workflow_path}")
+        return
+
+    # Define the broken string inside the fixer script and its replacement
+    broken_variable_line = "correct_url = 'https://githubusercontent.com'"
+    
+    # KernelSU-Next official legacy installer setup link
+    proper_url_line = "correct_url = 'https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh'"
+
+    # Read the workflow file content
+    with open(fixer_workflow_path, 'r', encoding='utf-8') as f:
+        file_content = f.read()
+
+    # Apply the logic fix
+    if broken_variable_line in file_content:
+        updated_content = file_content.replace(broken_variable_line, proper_url_line)
+        
+        with open(fixer_workflow_path, 'w', encoding='utf-8') as f:
+            f.write(updated_content)
+        print(f"✅ Success! Corrected the logic in '{fixer_workflow_path}'.")
+        print(f"   -> It will now map things to the valid KernelSU-Next branch repository setup script.")
+    else:
+        print("⚠️ The fixer workflow already seems modified or the target line was not found.")
+
+if __name__ == "__main__":
+    repair_meta_workflow()
