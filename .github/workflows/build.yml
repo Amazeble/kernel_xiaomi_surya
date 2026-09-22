@@ -101,52 +101,52 @@ jobs:
           
           echo "[+] Fixing SUSFS patch artifacts in fs/namei.c..."
           python3 << 'PYEOF'
-from pathlib import Path
-import re
+            from pathlib import Path
+            import re
+            
+            path = Path("fs/namei.c")
+            original = path.read_text()
+            # Remove the duplicate declaration in lookup_fast().
+            duplicate = re.compile( 
+                r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+                r"\s*bool is_nd_state_lookup_last_and_open_last = "
+                r"\(nd->state & ND_STATE_LOOKUP_LAST \|\| "
+                r"nd->state & ND_STATE_OPEN_LAST\);\n"
+                r"#endif\n",
+            )
+            fixed, duplicate_count = duplicate.subn("\n", original, count=1)
+            # Remove the SUSFS block incorrectly inserted into sys_mknodat
+            misplaced = re.compile(
+                r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+                r"\s*if \(is_nd_flags_lookup_last && !found_sus_path && "
+                r"dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n"
+                r"\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n"
+                r"\s*\{\n"
+                r"\s*if \(d_in_lookup\(dentry\)\)\n"
+                r"\s*d_lookup_done\(dentry\);\n"
+                r"\s*if \(!\(flags & LOOKUP_RCU\)\)\n"
+                r"\s*dput\(dentry\);\n"
+                r"\s*dentry = d_alloc_parallel\(dir, "
+                r"&susfs_fake_qstr_name, &wq\);\n"
+                r"\s*found_sus_path = true;\n"
+                r"\s*goto retry;\n"
+                r"\s*\}\n"
+                r"#endif\n",
+                re.MULTILINE,
+            )
+            fixed, misplaced_count = misplaced.subn("\n", fixed, count=1)
 
-path = Path("fs/namei.c")
-original = path.read_text()
-# Remove the duplicate declaration in lookup_fast().
-duplicate = re.compile( 
-    r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-    r"\s*bool is_nd_state_lookup_last_and_open_last = "
-    r"\(nd->state & ND_STATE_LOOKUP_LAST \|\| "
-    r"nd->state & ND_STATE_OPEN_LAST\);\n"
-    r"#endif\n",
-)
-fixed, duplicate_count = duplicate.subn("\n", original, count=1)
-# Remove the SUSFS block incorrectly inserted into sys_mknodat
-misplaced = re.compile(
-    r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-    r"\s*if \(is_nd_flags_lookup_last && !found_sus_path && "
-    r"dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n"
-    r"\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n"
-    r"\s*\{\n"
-    r"\s*if \(d_in_lookup\(dentry\)\)\n"
-    r"\s*d_lookup_done\(dentry\);\n"
-    r"\s*if \(!\(flags & LOOKUP_RCU\)\)\n"
-    r"\s*dput\(dentry\);\n"
-    r"\s*dentry = d_alloc_parallel\(dir, "
-    r"&susfs_fake_qstr_name, &wq\);\n"
-    r"\s*found_sus_path = true;\n"
-    r"\s*goto retry;\n"
-    r"\s*\}\n"
-    r"#endif\n",
-    re.MULTILINE,
-)
-fixed, misplaced_count = misplaced.subn("\n", fixed, count=1)
+            if duplicate_count != 1:
+                raise SystemExit(
+                    f"Expected one duplicate declaration, removed {duplicate_count}"
+                )
+            if misplaced_count != 1:
+                raise SystemExit(
+                    f"Expected one misplaced mknodat block, removed {misplaced_count}"
+                )
 
-if duplicate_count != 1:
-    raise SystemExit(
-        f"Expected one duplicate declaration, removed {duplicate_count}"
-    )
-if misplaced_count != 1:
-    raise SystemExit(
-        f"Expected one misplaced mknodat block, removed {misplaced_count}"
-    )
-
-path.write_text(fixed)
-PYEOF
+            path.write_text(fixed)
+          PYEOF
 
           test "$(grep -c 'bool is_nd_state_lookup_last_and_open_last' fs/namei.c)" -eq 1 || { echo "ERROR: duplicate declaration check failed"; exit 1; }
 
