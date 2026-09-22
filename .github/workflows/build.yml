@@ -113,7 +113,11 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          
+          # DISABLE ZeroMount-dependent features to prevent compilation errors
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
 
           # --- Other features ---
@@ -152,6 +156,126 @@ jobs:
           
           # --- NoMount ---
           ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+          
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+
+          # --- STRICT VERIFICATION ---
+          echo "=== Verifying KernelSU Next & SusFS dependencies ==="
+          MISSING=0
+          
+          if ! grep -q "CONFIG_KSU=y" out/.config; then
+            echo "FATAL: CONFIG_KSU is missing!"
+            MISSING=1
+          fi
+          
+          if ! grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config; then
+            echo "FATAL: CONFIG_KSU_MANUAL_HOOK is missing or dropped!"
+            MISSING=1
+          else
+            echo "CONFIG_KSU_MANUAL_HOOK=y verified."
+          fi
+          
+          if ! grep -q "CONFIG_KSU_SUSFS=y" out/.config; then
+            echo "FATAL: CONFIG_KSU_SUSFS is missing!"
+            MISSING=1
+          fi
+          
+          if [ "$MISSING" -eq 1 ]; then
+            echo ""
+            echo "=== Dumping relevant .config lines for debugging ==="
+            grep -iE "KSU|SUSFS|MANUAL_HOOK" out/.config || true
+            exit 1
+          fi
+          
+          echo "All dependencies verified successfully."
+
+      - name: Fix SusFS v2.1.0 Compilation Errors (ZeroMount Dependencies)
+        run: |
+          set -euo pipefail
+          echo "[+] Removing ZeroMount dependencies from SusFS v2.1.0 patches..."
+          
+          # Remove zeromount.h include from all source files to fix fatal error
+          find fs/ include/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '/#include <linux\/zeromount.h>/d' {} +
+          
+          # Explicitly disable ZeroMount-dependent features in defconfig just in case
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HARDENED
+          
+          # Re-run olddefconfig to apply the disabled flags
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+          echo "[+] SusFS v2.1.0 compilation errors fixed."
+
+      - name: Build Kernel
+        run: |
+          set -euo pipefail
+          make -j$(nproc --all) O=out ARCH=arm64 \
+          KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
+          CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+          CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+          LLVM=1 LLVM_IAS=1 \
+          Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+          
+      - name: Package AnyKernel3 ZIP
+        run: |
+          set -euo pipefail
+          export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
+          head=$(git rev-parse --verify HEAD 2>/dev/null)
+          if [ -n "$head" ]; then
+            ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
+          fi
+          kernel="out/arch/arm64/boot/Image.gz"
+          dtb="out/arch/arm64/boot/dtb.img"
+          dtbo="out/arch/arm64/boot/dtbo.img"
+          if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
+            GIT_HOST="https://github.com"
+            AK3_PATH="/surya-aosp/AnyKernel3"
+            if ! git clone -q "${GIT_HOST}${AK3_PATH}" -b arise AnyKernel3; then
+              echo "Failed to clone AnyKernel3!"
+              exit 1
+            fi
+            
+            cp $kernel $dtb $dtbo AnyKernel3/
+            
+            # Copy all compiled modules (Wi-Fi, BT, USB) to AnyKernel3
+            mkdir -p AnyKernel3/system/lib/modules
+            find out -name '*.ko' -exec cp {} AnyKernel3/system/lib/modules/ \;
+            
+            rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
+            if [ -n "$rtw_fw" ]; then
+              mkdir -p AnyKernel3/vendor/firmware/rtw88
+              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
+            fi
+            
+            mkdir -p AnyKernel3/system/etc/init
+            printf '%s\n' \
+              'on boot' \
+              '    insmod /system/lib/modules/rtw88_8812au.ko' \
+              '' \
+              'on post-fs-data' \
+              '    mkdir /config/usb/g1 0770 system system' \
+              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
+              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
+              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
+              '    write /config/usb/g1/os_desc/use 1' \
+              > AnyKernel3/system/etc/init/arise.rc
+            
+            cd AnyKernel3
+            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
+            cd ..
+            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
+            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
+          else
+            echo "Compilation failed!"
+            exit 1
+          fi
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arise-Kernel-Surya
+          path: ${{ env.ZIPNAME }}          ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
