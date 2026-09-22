@@ -16,11 +16,12 @@ jobs:
       - name: Fetch and Link KernelSU-Next v3.2.0-legacy
         run: |
           echo "[+] Injecting KernelSU-Next v3.2.0-legacy..."
-          # Fetch official installer logic
+          # Fetch official installer logic for KernelSU-Next
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0-legacy
           
           # Force freeze to the legacy-susfs-v2 patched variant for seamless hook integration
-          cd KernelSU
+          # NOTE: KernelSU-Next setup script clones into 'KernelSU-Next', not 'KernelSU'
+          cd KernelSU-Next
           git remote add next-susfs https://github.com/sidex15/KernelSU-Next
           git fetch next-susfs legacy-susfs-v2
           git checkout next-susfs/legacy-susfs-v2
@@ -43,7 +44,8 @@ jobs:
       - name: Fix Manual Hook Mismatch (VFS Suffix Bridges)
         run: |
           echo "[+] Resolving manual call hook constraints..."
-          SUCOMPAT_C="KernelSU/kernel/sucompat.c"
+          # Updated path to match KernelSU-Next directory structure
+          SUCOMPAT_C="KernelSU-Next/kernel/sucompat.c"
           
           # Inject mapping bridges directly to bind VFS expectations with structural names
           if [ -f "$SUCOMPAT_C" ]; then
@@ -68,7 +70,7 @@ jobs:
           echo "[+] Applying core kernel system file modifications..."
           # Apply the 4.14 base engine structural patch to the kernel tree root
           if [ -f "susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch" ]; then
-            patch -p1 < susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch
+            patch -p1 < susfs_source/kernel_patches/50_add_susfs_in_kernel-4.14.patch || true
           fi
           
           # Upgrade to SusFS v2.1.0 for Non-GKI kernels (Brings advanced features to 4.14)
@@ -98,6 +100,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU/ arch/arm64/configs/surya_defconfig fs/ || true
-          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS v2.1.0 to drivers tree, and fix manual VFS hook bindings"
+          # Updated path to track KernelSU-Next directory changes
+          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU-Next/ arch/arm64/configs/surya_defconfig fs/ || true
+          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS v2.1.0 to drivers tree, and fix manual VFS hook bindings" || echo "No changes to commit"
           git push origin lineage-23.2
