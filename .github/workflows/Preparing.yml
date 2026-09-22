@@ -16,11 +16,10 @@ jobs:
       - name: Fetch and Link KernelSU-Next v3.2.0-legacy
         run: |
           echo "[+] Injecting KernelSU-Next v3.2.0-legacy..."
-          # Fetch official installer logic for KernelSU-Next
+          # Fetch official installer logic
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s v3.2.0-legacy
           
           # Force freeze to the legacy-susfs-v2 patched variant for seamless hook integration
-          # NOTE: KernelSU-Next setup script clones into 'KernelSU-Next', not 'KernelSU'
           cd KernelSU-Next
           git remote add next-susfs https://github.com/sidex15/KernelSU-Next
           git fetch next-susfs legacy-susfs-v2
@@ -40,30 +39,6 @@ jobs:
           # Hook custom folder dynamically into core Kbuild engines
           echo "obj-y += susfs.o" > drivers/susfs/Makefile
           echo "obj-y += susfs/" >> drivers/Makefile
-
-      - name: Fix Manual Hook Mismatch (VFS Suffix Bridges)
-        run: |
-          echo "[+] Resolving manual call hook constraints..."
-          # Updated path to match KernelSU-Next directory structure
-          SUCOMPAT_C="KernelSU-Next/kernel/sucompat.c"
-          
-          # Inject mapping bridges directly to bind VFS expectations with structural names
-          if [ -f "$SUCOMPAT_C" ]; then
-            cat >> "$SUCOMPAT_C" << 'VFS_STUBS_EOF'
-
-          /* VFS Hook Suffix Bridges — Fixes kernel hooks mapping signature mismatches */
-          int ksu_handle_faccessat(int *dfd, const char __user **filename, int *mode, int *flags) {
-              return ksu_handle_faccessat_sucompat(dfd, filename, mode, flags);
-          }
-          
-          int ksu_handle_stat(int *dfd, const char __user **filename, int *flags) {
-              return ksu_handle_stat_sucompat(dfd, filename, flags);
-          }
-          VFS_STUBS_EOF
-            echo "[+] Suffix bridge hooks injected cleanly."
-          else
-            echo "[!] Error: sucompat.c file not found to bridge hooks." && exit 1
-          fi
 
       - name: Auto-Apply SusFS File System Patches (v2.1.0 Upgrade)
         run: |
@@ -100,7 +75,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Updated path to track KernelSU-Next directory changes
           git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU-Next/ arch/arm64/configs/surya_defconfig fs/ || true
           git commit -m "Integrate KSUN v3.2.0-legacy, SusFS v2.1.0 to drivers tree, and fix manual VFS hook bindings" || echo "No changes to commit"
           git push origin lineage-23.2
