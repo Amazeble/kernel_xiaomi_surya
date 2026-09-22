@@ -1,7 +1,21 @@
+name: Hotfix Workflow URLs
+
+on:
+  workflow_dispatch: # Allows manual trigger from Actions tab
+
+jobs:
+  fix_urls_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Hotfix Script Workflow URLs
         run: |
           echo "[+] Automatically correcting placeholder URLs..."
-          WORKFLOW_FILE=".github/workflows/build.yml"
+          
+          # Target this exact file to fix its own URLs
+          WORKFLOW_FILE=".github/workflows/Fix_url.yml"
           
           # Short-line paths to prevent layout cropping
           KSU_NEXT_SCRIPT="https://githubusercontent.com"\
@@ -33,3 +47,11 @@
             echo "[!] Target workflow file not found."
             exit 1
           fi
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "aamazeble@github.com"
+          git config --local user.name "Amazeble"
+          git add .github/workflows/Fix_url.yml
+          git diff-index --quiet HEAD || git commit -m "chore: hotfix repository URLs"
+          git push
