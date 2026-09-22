@@ -50,8 +50,7 @@ jobs:
 
       - name: Commit and Push Changes
         run: |
-          git config --local user.email "aamazeble@github.com"
-          git config --local user.name "Amazeble"
+          git config set advice.addIgnoredFile false
           git add .github/workflows/Fix_url.yml
           git diff-index --quiet HEAD || git commit -m "chore: hotfix repository URLs"
           git push
