@@ -1,0 +1,25 @@
+# ==========================================
+# KernelSU and SUSFS Configuration Options
+# Add these to your kernel defconfig file
+# ==========================================
+
+# Core KernelSU
+CONFIG_KSU=y
+
+# SUSFS Core Support
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_MAP=y
+
+# Optional: Manual hook (for certain KernelSU forks)
+# CONFIG_KSU_MANUAL_HOOK=y
+
+# Thread info (if required by your kernel)
+# CONFIG_THREAD_INFO_IN_TASK=y
