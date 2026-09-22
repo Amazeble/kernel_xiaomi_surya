@@ -1,0 +1,96 @@
+name: Setup Kernel Tree (KSUN v3.2.0-legacy + SusFS Manual Hooks)
+
+on:
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI tab
+
+jobs:
+  patch_tree:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source Tree
+        uses: actions/checkout@v4
+        with:
+          ref: lineage-23.2
+          fetch-depth: 1
+
+      - name: Fetch and Link KernelSU-Next v3.2.0-legacy
+        run: |
+          echo "[+] Injecting KernelSU-Next v3.2.0-legacy..."
+          # Fetch official installer logic
+          curl -LSs "https://githubusercontent.com" | bash -s v3.2.0-legacy
+          
+          # Force freeze to the legacy-susfs-v2 patched variant for seamless hook integration
+          cd KernelSU
+          git remote add next-susfs https://github.com
+          git fetch next-susfs legacy-susfs-v2
+          git checkout next-susfs/legacy-susfs-v2
+          cd ..
+
+      - name: Download SusFS and Inject to drivers/
+        run: |
+          echo "[+] Downloading SusFS kernel-4.14 architecture assets..."
+          git clone https://gitlab.com -b kernel-4.14 susfs_source
+          
+          # Create targets and isolate core assets from fs/ to drivers/
+          mkdir -p drivers/susfs
+          cp susfs_source/kernel/fs/susfs.c drivers/susfs/
+          cp susfs_source/kernel/include/linux/susfs.h include/linux/
+          
+          # Hook custom folder dynamically into core Kbuild engines
+          echo "obj-y += susfs.o" > drivers/susfs/Makefile
+          echo "obj-y += susfs/" >> drivers/Makefile
+
+      - name: Fix Manual Hook Mismatch (VFS Suffix Bridges)
+        run: |
+          echo "[+] Resolving manual call hook constraints..."
+          SUCOMPAT_C="KernelSU/kernel/sucompat.c"
+          
+          # Inject mapping bridges directly to bind VFS expectations with structural names
+          if [ -f "$SUCOMPAT_C" ]; then
+            cat >> "$SUCOMPAT_C" << 'VFS_STUBS_EOF'
+
+          /* VFS Hook Suffix Bridges — Fixes kernel hooks mapping signature mismatches */
+          int ksu_handle_faccessat(int *dfd, const char __user **filename, int *mode, int *flags) {
+              return ksu_handle_faccessat_sucompat(dfd, filename, mode, flags);
+          }
+          
+          int ksu_handle_stat(int *dfd, const char __user **filename, int *flags) {
+              return ksu_handle_stat_sucompat(dfd, filename, flags);
+          }
+          VFS_STUBS_EOF
+            echo "[+] Suffix bridge hooks injected cleanly."
+          else
+            echo "[!] Error: sucompat.c file not found to bridge hooks." && exit 1
+          fi
+
+      - name: Auto-Apply SusFS File System Patches
+        run: |
+          echo "[+] Applying core kernel system file modifications..."
+          # Apply the 4.14 base engine structural patch to the kernel tree root
+          if [ -f "susfs_source/50_add_susfs_in_kernel-4.14.patch" ]; then
+            patch -p1 < susfs_source/50_add_susfs_in_kernel-4.14.patch
+          fi
+          
+          # Clean up download residue workspace
+          rm -rf susfs_source
+
+      - name: Update Kernel Defconfig Flags
+        run: |
+          echo "[+] Forcing critical compilation directives into surya_defconfig..."
+          DEFCONFIG_PATH="arch/arm64/configs/surya_defconfig"
+          
+          # Enable KernelSU, explicit manual hook behavior, and SusFS definitions
+          echo "CONFIG_KSU=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_KSU_NEXT=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_SUSFS=y" >> $DEFCONFIG_PATH
+          echo "CONFIG_SUSFS_SMART_HIDE=y" >> $DEFCONFIG_PATH
+
+      - name: Push Tree Upgrades to Repository Branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add include/linux/susfs.h drivers/susfs/ drivers/Makefile KernelSU/ arch/arm64/configs/surya_defconfig fs/ open.c stat.c || true
+          git commit -m "Integrate KSUN v3.2.0-legacy, SusFS to drivers tree, and fix manual VFS hook bindings"
+          git push origin lineage-23.2
