@@ -495,41 +495,26 @@ jobs:
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_USB_CONFIGFS_F_FS|CONFIG_USB_F_FS" out/.config || true
 
-      - name: Fix SuSFS Compilation Errors in fs/stat.c
-        run: |
-          cd kernel_xiaomi_surya || true
-          
-          # 1. Inject the missing header safely at line 1
-          if [ -f fs/stat.c ] && ! grep -q "linux/susfs.h" fs/stat.c; then
-            echo "Injecting <linux/susfs.h> into fs/stat.c..."
-            sed -i '1i #include <linux/susfs.h>' fs/stat.c
-          fi
-
-          # 2. Inject missing STATX definitions safely below the header guard
-          if [ -f include/uapi/linux/stat.h ] && ! grep -q "STATX_SUS_KSTAT" include/uapi/linux/stat.h; then
-            echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
-            sed -i '/#define _UAPI_LINUX_STAT_H/a #define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U' include/uapi/linux/stat.h
-          fi
-
-
       - name: Fix SuSFS Compilation Errors
         run: |
-          # 1. Inject the missing linux/susfs.h header into fs/stat.c cleanly
+          # 1. Inject susfs.h properly into fs/stat.c after standard includes
           if [ -f fs/stat.c ] && ! grep -q "linux/susfs.h" fs/stat.c; then
             echo "Injecting <linux/susfs.h> into fs/stat.c..."
-            printf '#include <linux/susfs.h>\n\n%s' "$(cat fs/stat.c)" > fs/stat.c
+            # Define struct kstat first so susfs.h compiles fine even if ordered early
+            printf 'struct kstat;\n#include <linux/susfs.h>\n\n%s' "$(cat fs/stat.c)" > fs/stat.c
           fi
-
-          # 2. Inject missing STATX definitions into include/uapi/linux/stat.h cleanly
+  
+          # 2. Inject missing STATX definitions into include/uapi/linux/stat.h
           if [ -f include/uapi/linux/stat.h ] && ! grep -q "STATX_SUS_KSTAT" include/uapi/linux/stat.h; then
             echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
             printf '#define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U\n\n%s' "$(cat include/uapi/linux/stat.h)" > include/uapi/linux/stat.h
           fi
-
-          # 3. Inject the missing linux/susfs.h header into mm/memory.c cleanly
+  
+          # 3. Inject susfs.h properly into mm/memory.c after standard includes
           if [ -f mm/memory.c ] && ! grep -q "linux/susfs.h" mm/memory.c; then
             echo "Injecting <linux/susfs.h> into mm/memory.c..."
-            printf '#include <linux/susfs.h>\n\n%s' "$(cat mm/memory.c)" > mm/memory.c
+            # Add standard headers config inclusion before loading susfs configuration
+            printf '#include <linux/types.h>\nstruct kstat;\n#include <linux/susfs.h>\n\n%s' "$(cat mm/memory.c)" > mm/memory.c
           fi
 
       - name: Build Kernel
