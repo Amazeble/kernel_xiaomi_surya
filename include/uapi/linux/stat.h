@@ -146,10 +146,6 @@ also.
 #define STATX_ATTR_AUTOMOUNT		0x00001000 /* Dir: Automount trigger */
 #define STATX_ATTR_VERITY		0x00100000 /* [I] Verity protected file */
 
-/* SUSFS custom STATX flags */
-#define STATX_SUS_KSTAT          (1ULL << 63)
-#define STATX_SUS_KSTAT_FUSE     (1ULL << 62)
-
 /* SUSFS helper macro */
 #define SUSFS_IS_INODE_SUS_MAP(inode) 0
 
