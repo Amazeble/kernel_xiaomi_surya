@@ -35,6 +35,35 @@ jobs:
             git clone --depth=1 -b 17 "${GITLAB_HOST}${TC_PATH}" "$TC_DIR"
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
+      - name: Remove committed SUSFS integration (revert its own commits)
+        run: |
+          set -euo pipefail
+          echo "=== Commits inside revert range (verification) ==="
+          git log --oneline e5f740516e7f^..6a08cce8ddc8 | cat
+          echo "=== Reverting SUSFS commit range (newest first) ==="
+          if git revert --no-commit e5f740516e7f^..6a08cce8ddc8; then
+            echo "revert clean"
+          else
+            echo "::warning::revert conflicted; falling back to path restore"
+            git revert --abort || true
+            BASE=$(git rev-parse e5f740516e7f^)
+            git checkout "$BASE" -- \
+              fs/dcache.c fs/namei.c fs/namespace.c fs/notify/fdinfo.c fs/open.c \
+              fs/overlayfs/inode.c fs/overlayfs/overlayfs.h fs/overlayfs/readdir.c \
+              fs/overlayfs/super.c fs/overlayfs/util.c fs/proc/base.c \
+              fs/proc/cmdline.c fs/proc/fd.c fs/proc/task_mmu.c fs/proc_namespace.c \
+              fs/readdir.c fs/stat.c fs/statfs.c include/linux/mount.h \
+              include/linux/sched.h kernel/kallsyms.c kernel/sys.c \
+              security/selinux/avc.c
+          fi
+          rm -rf drivers/susfs
+          rm -f fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h
+          # --- ReSukiSU-only (your stated goal): drop KernelSU-Next ---
+          rm -rf KernelSU-Next
+          sed -i '/KernelSU-Next/d' Makefile Kconfig drivers/Makefile drivers/Kconfig 2>/dev/null || true
+          echo "=== Post-cleanup SUSFS footprint (must print CLEAN) ==="
+          grep -rln -e 'susfs_' -e 'SUSFS_' --include='*.c' --include='*.h' . \
+            | grep -v '^./drivers/kernelsu' || echo "CLEAN"
 
       - name: Integrate KernelSU (ReSukiSU) into drivers/kernelsu
         run: |
