@@ -314,11 +314,11 @@ jobs:
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --module CONFIG_USB_LIBCOMPOSITE
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_FS
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS   <-- FIXED
           ./scripts/config --file out/.config --module CONFIG_USB_F_FS
-          # Note: Your original file cut off here at `CONFIG_]`. 
-          # Add any remaining module configurations below this line.
-          # ./scripts/config --file out/.config --module CONFIG_YOUR_MISSING_MODULE
+
+          echo "=== Finalizing config (non-interactive) ==="
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
 
       - name: Build Kernel
         run: |
