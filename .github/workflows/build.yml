@@ -305,24 +305,24 @@ jobs:
           ./scripts/config --file out/.config --module CONFIG_USB_F_FS
           ./scripts/config --file out/.config --module CONFIG_])
 
-patch_file('fs/open.c', [
-    (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1'),
-    (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)', r'\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n')
-])
+          patch_file('fs/open.c', [
+              (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1'),
+              (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)', r'\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n')
+          ])
 
-patch_file('kernel/reboot.c', [
-    (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1'),
-    (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n')
-])
+          patch_file('kernel/reboot.c', [
+              (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1'),
+              (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n')
+          ])
 
-patch_file('security/selinux/selinuxfs.c', [
-    (r'static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =', r'ssize_t (*write_op[])(struct file *, char *, size_t) ='),
-    (r'static const struct file_operations sel_handle_status_ops =', r'const struct file_operations sel_handle_status_ops =')
-])
+          patch_file('security/selinux/selinuxfs.c', [
+              (r'static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =', r'ssize_t (*write_op[])(struct file *, char *, size_t) ='),
+              (r'static const struct file_operations sel_handle_status_ops =', r'const struct file_operations sel_handle_status_ops =')
+          ])
 
-patch_file('security/selinux/ss/services.c', [
-    (r'static DEFINE_RWLOCK\(policy_rwlock\);', r'DEFINE_RWLOCK(policy_rwlock);')
-])
+          patch_file('security/selinux/ss/services.c', [
+              (r'static DEFINE_RWLOCK\(policy_rwlock\);', r'DEFINE_RWLOCK(policy_rwlock);')
+          ])
           "
           echo "[+] ReSukiSU manual hooks applied."
 
