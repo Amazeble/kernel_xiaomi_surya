@@ -74,12 +74,6 @@ EXPORT_SYMBOL(generic_fillattr);
  * filehandle lookup code, which uses only the inode number and returns no
  * attributes to any user.  Any other code probably wants vfs_getattr.
  */
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
-extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode,
-						   struct kstat *stat, u32 result_mask);
-#endif
-
 int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 		      u32 request_mask, unsigned int query_flags)
 {
@@ -89,47 +83,15 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	stat->result_mask |= STATX_BASIC_STATS;
 	request_mask &= STATX_ALL;
 	query_flags &= KSTAT_QUERY_FLAGS;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-	if (susfs_is_current_app_uid()) {
-		bool is_fuse = false;
-		if (susfs_is_inode_sus_kstat(inode, &is_fuse)) {
-			if (!is_fuse)
-				stat->result_mask |= STATX_SUS_KSTAT;
-			stat->result_mask |= STATX_SUS_KSTAT_FUSE;
-		}
-	}
-	if (inode->i_op->getattr) {
-		int err = inode->i_op->getattr(path, stat, request_mask, query_flags);
-		if (!err) {
-			if (stat->result_mask & STATX_SUS_KSTAT) {
-				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
-				return err;
-			}
-			if (stat->result_mask & STATX_SUS_KSTAT_FUSE) {
-				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
-				return err;
-			}
-		}
-		return err;
-	}
-	if (stat->result_mask & STATX_SUS_KSTAT) {
-		generic_fillattr(inode, stat);
-		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
-		return 0;
-	}
-	if (stat->result_mask & STATX_SUS_KSTAT_FUSE) {
-		generic_fillattr(inode, stat);
-		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
-		return 0;
-	}
-#else
 	if (inode->i_op->getattr)
-		return inode->i_op->getattr(path, stat, request_mask, query_flags);
-#endif
+		return inode->i_op->getattr(path, stat, request_mask,
+					    query_flags);
+
 	generic_fillattr(inode, stat);
 	return 0;
 }
+EXPORT_SYMBOL(vfs_getattr_nosec);
+
 /*
  * vfs_getattr - Get the enhanced basic attributes of a file
  * @path: The file of interest
