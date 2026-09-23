@@ -353,13 +353,13 @@ jobs:
           # 2. Add st_susfs_hide_sus_mnts_for_non_su_procs if missing
           if "struct st_susfs_hide_sus_mnts_for_non_su_procs" not in content:
               hide_mnts = """
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-struct st_susfs_hide_sus_mnts_for_non_su_procs {
-    int enabled;
-    int err;
-};
-#endif
-"""
+          #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          struct st_susfs_hide_sus_mnts_for_non_su_procs {
+          int enabled;
+          int err;
+          };
+          #endif
+          """
               # Insert before the first function prototype
               match = re.search(r'(int|void) susfs_add_sus_kstat', content)
               if match:
