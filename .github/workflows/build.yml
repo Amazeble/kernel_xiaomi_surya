@@ -183,7 +183,7 @@ jobs:
             echo "::error::SUSFS patches are incompatible with this kernel tree"
             echo "[+] Dumping rejected files for debugging:"
             find "$GITHUB_WORKSPACE" -name '*.rej' -print
-            git -C "$GITHUB_WORKSPACE" diff -- fs/readdir.c fs/namei.c
+            git -C "$GITHUB_WORKSPACE" diff -- fs/readdir.c fs/namei.c fs/namespace.c
             exit 1
           fi
           echo "[+] Cleaning up patch artifacts..."
@@ -270,15 +270,92 @@ jobs:
           python3 /tmp/fix_readdir.py
           rm -f /tmp/fix_readdir.py
 
+          echo "[+] Fixing SUSFS patch artifacts in fs/namespace.c..."
+          cat << 'PYEOF' > /tmp/fix_namespace.py
+          from pathlib import Path
+          import re
+
+          path = Path("fs/namespace.c")
+          content = path.read_text()
+
+          # The hunk that adds the SUSFS mount-id file-scope variables failed
+          # while the hunk adding susfs_mnt_alloc_id() applied. Re-add the
+          # missing declarations (guarded so we never duplicate them).
+          if "susfs_mnt_alloc_id" in content:
+              decls = []
+              if "DEFINE_IDA(susfs_mnt_id_ida)" not in content:
+                  decls.append("static DEFINE_IDA(susfs_mnt_id_ida);")
+              if "static int susfs_mnt_id_start;" not in content:
+                  decls.append("static int susfs_mnt_id_start;")
+              if "DEFINE_SPINLOCK(mnt_id_lock)" not in content:
+                  decls.append("static DEFINE_SPINLOCK(mnt_id_lock);")
+              if decls:
+                  block = "\n".join(decls) + "\n\n"
+                  content = content.replace(
+                      "static int susfs_mnt_alloc_id(struct mount *mnt)",
+                      block + "static int susfs_mnt_alloc_id(struct mount *mnt)",
+                      1,
+                  )
+              if "#include <linux/idr.h>" not in content:
+                  content = re.sub(
+                      r"(^#include <linux/\S+>\n)",
+                      r"\1#include <linux/idr.h>\n",
+                      content,
+                      count=1,
+                      flags=re.MULTILINE,
+                  )
+
+          # The alloc_vfsmnt() prototype was changed to
+          # (name, should_spoof, custom_mnt_id) but the vanilla call sites
+          # were not updated. Fix every single-argument call site.
+          content = re.sub(
+              r"alloc_vfsmnt\(([^,();]+)\);",
+              r"alloc_vfsmnt(\1, false, 0);",
+              content,
+          )
+
+          path.write_text(content)
+          PYEOF
+          python3 /tmp/fix_namespace.py
+          rm -f /tmp/fix_namespace.py
+          if grep -n 'alloc_vfsmnt([^,)]*);' fs/namespace.c; then
+            echo "ERROR: single-argument alloc_vfsmnt() call sites remain"
+            exit 1
+          fi
+
           git diff --check
           echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
 
-      - name: Create ZeroMount Stub Header
+      - name: Create ZeroMount stub header and SUSFS compat stubs
         run: |
           set -euo pipefail
           echo "[+] Creating stub ZeroMount header for compilation compatibility..."
           printf '#ifndef _LINUX_ZEROMOUNT_H\n#define _LINUX_ZEROMOUNT_H\n#include <linux/types.h>\nstatic inline void zeromount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino) { }\nstatic inline int zeromount_is_hidden_path(const char *path) { return 0; }\nstatic inline struct filename *zeromount_getname_hook(struct filename *name) { return name; }\nstatic inline int zeromount_is_injected_file(struct inode *inode) { return 0; }\nstatic inline int zeromount_is_traversal_allowed(struct inode *inode, int mask) { return 1; }\nstatic inline int zeromount_stat_hook(struct filename *filename) { return 0; }\n#endif\n' > include/linux/zeromount.h
           echo "[+] ZeroMount stub header created at include/linux/zeromount.h"
+          echo "[+] Appending no-op fallbacks for SUSFS APIs missing from this tree's SUSFS revision..."
+          SUSFS_H="include/linux/susfs.h"
+          if [ -f "$SUSFS_H" ]; then
+            grep -q 'define SUSFS_IS_INODE_OPEN_REDIRECT' "$SUSFS_H" || cat >> "$SUSFS_H" <<'EOF'
+          #ifndef SUSFS_IS_INODE_OPEN_REDIRECT
+          #define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)
+          #endif
+          #ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK
+          #define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)
+          #endif
+          EOF
+            grep -q 'susfs_check_unicode_bypass' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
+          static inline int susfs_check_unicode_bypass(const char __user *uptr, ...) { return 0; }
+          EOF
+            grep -q 'susfs_is_hidden_name' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
+          static inline int susfs_is_hidden_name(const char *name, ...) { return 0; }
+          EOF
+            grep -q 'susfs_is_current_zygote_domain' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
+          static inline int susfs_is_current_zygote_domain(void) { return 0; }
+          EOF
+            echo "[+] SUSFS compat stubs appended to $SUSFS_H"
+          else
+            echo "WARNING: include/linux/susfs.h not found; skipping compat stubs"
+          fi
 
       - name: Generate and Force Feature Defconfig
         run: |
@@ -301,15 +378,15 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
           echo "=== Enabling SusFS 2.1 Enhanced Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_UNICODE_FILTER
           echo "=== Disabling Incompatible/Broken SusFS Features ==="
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HARDENED
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
           echo "=== Disabling ZeroMount (stub only, no driver) ==="
           ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
           echo "=== Enabling Other Features ==="
