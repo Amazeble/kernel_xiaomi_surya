@@ -26,9 +26,6 @@
 #define S_ISFIFO(m)	(((m) & S_IFMT) == S_IFIFO)
 #define S_ISSOCK(m)	(((m) & S_IFMT) == S_IFSOCK)
 
-#define STATX_SUS_KSTAT          (1ULL << 63)
-#define STATX_SUS_KSTAT_FUSE     (1ULL << 62)
-
 #define S_IRWXU 00700
 #define S_IRUSR 00400
 #define S_IWUSR 00200
