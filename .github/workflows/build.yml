@@ -495,50 +495,6 @@ jobs:
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_USB_CONFIGFS_F_FS|CONFIG_USB_F_FS" out/.config || true
 
-      - name: Fix SuSFS Compilation Errors (Python Method)
-        run: |
-          python3 -c '
-          import os
-  
-          def inject_susfs(file_path):
-              if not os.path.exists(file_path):
-                  print(f"File not found: {file_path}")
-                  return
-              
-              with open(file_path, "r") as f:
-                  lines = f.readlines()
-              
-              # Check if already injected
-              if any("linux/susfs.h" in line for line in lines):
-                  print(f"Already injected in {file_path}")
-                  return
-              
-              # Find the last #include line to preserve top-down compilation order
-              last_include_idx = -1
-              for idx, line in enumerate(lines):
-                  if line.strip().startswith("#include"):
-                      last_include_idx = idx
-              
-              if last_include_idx != -1:
-                  lines.insert(last_include_idx + 1, "#include <linux/susfs.h>\n")
-                  with open(file_path, "w") as f:
-                      f.writelines(lines)
-                  print(f"Successfully injected susfs.h into {file_path}")
-              else:
-                  print(f"No #include found in {file_path}")
-  
-          # Fix the files
-          inject_susfs("fs/stat.c")
-          inject_susfs("mm/memory.c")
-          '
-  
-          # 2. Inject missing STATX definitions into include/uapi/linux/stat.h cleanly
-          if [ -f include/uapi/linux/stat.h ] && ! grep -q "STATX_SUS_KSTAT" include/uapi/linux/stat.h; then
-            echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
-            printf '#define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U\n\n%s' "$(cat include/uapi/linux/stat.h)" > include/uapi/linux/stat.h
-          fi
-
-
       - name: Build Kernel
         run: |
           set -euo pipefail
