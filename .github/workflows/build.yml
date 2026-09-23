@@ -358,7 +358,8 @@ jobs:
           rm -rf /tmp/susfs-nongki
 
           echo "[+] Fixing SUSFS patch artifacts in fs/namei.c, fs/readdir.c, fs/namespace.c, and include/linux/susfs.h..."
-          python3 -c "
+          python3 << 'EOF'
+          
 import re
 from pathlib import Path
 
