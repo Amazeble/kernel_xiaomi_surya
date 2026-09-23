@@ -495,6 +495,22 @@ jobs:
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_USB_CONFIGFS_F_FS|CONFIG_USB_F_FS" out/.config || true
 
+      - name: Fix SuSFS Compilation Errors in fs/stat.c
+        run: |
+          cd kernel_xiaomi_surya || true # Navigate to kernel directory if needed
+          
+          # 1. Inject the missing linux/susfs.h header into fs/stat.c if it isn't there
+          if ! grep -q "linux/susfs.h" fs/stat.c; then
+            echo "Injecting <linux/susfs.h> into fs/stat.c..."
+            sed -i '1,/#include/{/#include/a #include <linux/susfs.h>}' fs/stat.c
+          fi
+
+          # 2. Inject missing STATX definitions into include/uapi/linux/stat.h if they are absent
+          if ! grep -q "STATX_SUS_KSTAT" include/uapi/linux/stat.h; then
+            echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
+            sed -i '/#define _UAPI_LINUX_STAT_H/a \\n#define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U' include/uapi/linux/stat.h
+          fi
+
       - name: Build Kernel
         run: |
           set -euo pipefail
