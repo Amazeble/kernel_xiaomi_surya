@@ -133,6 +133,204 @@ jobs:
           PYEOF
           echo "[+] ReSukiSU manual hooks applied."
 
+      - name: Clone NonGKI_Kernel_Build_2nd for SUSFS patches
+        run: |
+          echo "🔽 Cloning NonGKI_Kernel_Build_2nd repository for SUSFS support..."
+          git clone --depth=1 https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd.git nongki_build_temp
+          
+          # Copy SUSFS patches to a accessible location
+          if [ -d "nongki_build_temp/Patches" ]; then
+            cp -r nongki_build_temp/Patches ./SUSFS_Patches
+            echo "✅ SUSFS patches copied successfully"
+            ls -la SUSFS_Patches/
+          else
+            echo "⚠️ Patches directory not found in NonGKI_Kernel_Build_2nd"
+          fi
+          
+          # Cleanup temp directory
+          rm -rf nongki_build_temp
+
+      - name: Integrate SUSFS into KernelSU driver
+        run: |
+          echo "🔧 Integrating SUSFS support into KernelSU..."
+          
+          cd drivers/kernelsu
+          
+          # Check if SUSFS config options exist in Kconfig
+          if grep -q "KSU_SUSFS" Kconfig; then
+            echo "✅ SUSFS options already present in Kconfig"
+          else
+            echo "ℹ️ Adding SUSFS configuration options to Kconfig..."
+            
+            cat >> Kconfig << 'EOF'
+
+          config KSU_SUSFS
+              bool "KernelSU SUSFS support"
+              depends on KSU
+              help
+                Enable SUSFS (Stealth UserSpace File System) support for KernelSU.
+                This provides enhanced root hiding capabilities.
+
+          config KSU_SUSFS_SUS_PATH
+              bool "SUSFS path hiding"
+              depends on KSU_SUSFS
+              help
+                Enable path hiding functionality.
+
+          config KSU_SUSFS_SUS_MOUNT
+              bool "SUSFS mount hiding"
+              depends on KSU_SUSFS
+              help
+                Enable mount point hiding.
+
+          config KSU_SUSFS_SUS_KSTAT
+              bool "SUSFS kstat spoofing"
+              depends on KSU_SUSFS
+              help
+                Enable file metadata spoofing.
+
+          config KSU_SUSFS_SPOOF_UNAME
+              bool "SUSFS uname spoofing"
+              depends on KSU_SUSFS
+              help
+                Enable system information spoofing.
+
+          config KSU_SUSFS_ENABLE_LOG
+              bool "SUSFS logging"
+              depends on KSU_SUSFS
+              help
+                Enable SUSFS event logging.
+
+          config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+              bool "Hide KernelSU/SUSFS symbols"
+              depends on KSU_SUSFS
+              help
+                Hide KernelSU and SUSFS symbols from /proc/kallsyms.
+
+          config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+              bool "Spoof cmdline/bootconfig"
+              depends on KSU_SUSFS
+              help
+                Enable command line or bootconfig spoofing.
+
+          config KSU_SUSFS_OPEN_REDIRECT
+              bool "SUSFS open redirect"
+              depends on KSU_SUSFS
+              help
+                Enable file open redirection.
+
+          config KSU_SUSFS_SUS_MAP
+              bool "SUSFS map hiding"
+              depends on KSU_SUSFS
+              help
+                Enable memory map hiding.
+          EOF
+            
+            echo "✅ SUSFS Kconfig options added"
+          fi
+          
+          cd ../..
+
+      - name: Update Makefile for SUSFS
+        run: |
+          echo "🔧 Updating Makefile for SUSFS compilation support..."
+          
+          DRIVER_MAKEFILE="drivers/Makefile"
+          
+          # Check if kernelsu entry already exists
+          if grep -q "kernelsu" "$DRIVER_MAKEFILE"; then
+            echo "✅ KernelSU entry already exists in Makefile"
+          else
+            echo "" >> "$DRIVER_MAKEFILE"
+            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_MAKEFILE"
+            echo "✅ Added KernelSU to Makefile"
+          fi
+          
+          # Display the updated Makefile
+          echo "📄 Updated Makefile content:"
+          tail -5 "$DRIVER_MAKEFILE"
+
+      - name: Update Kconfig for KernelSU source
+        run: |
+          echo "🔧 Updating drivers/Kconfig..."
+          
+          DRIVER_KCONFIG="drivers/Kconfig"
+          
+          if grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"; then
+            echo "✅ KernelSU Kconfig source already exists"
+          else
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
+            echo "✅ Added KernelSU Kconfig source"
+          fi
+
+      - name: Create SUSFS integration script
+        run: |
+          echo "🔧 Creating SUSFS patch application script..."
+          
+          cat > apply_susfs_patches.sh << 'SCRIPT'
+          #!/bin/bash
+          set -e
+          
+          echo "=========================================="
+          echo "  SUSFS Patch Application Script"
+          echo "=========================================="
+          
+          KERNEL_DIR="${1:-.}"
+          PATCHES_DIR="${2:-./SUSFS_Patches}"
+          
+          cd "$KERNEL_DIR"
+          
+          # Detect kernel version
+          if [ -f "Makefile" ]; then
+            KERNEL_VERSION=$(head -n 3 Makefile | grep -E 'VERSION|PATCHLEVEL' | awk '{print $3}' | paste -sd '.')
+            echo "📋 Detected kernel version: $KERNEL_VERSION"
+          else
+            echo "❌ Makefile not found in kernel directory"
+            exit 1
+          fi
+          
+          # Find appropriate SUSFS patch
+          SUSFS_PATCH=""
+          if [ -d "$PATCHES_DIR/Patch" ]; then
+            for patch_file in "$PATCHES_DIR/Patch"/susfs_patch_to_*.patch; do
+              if [ -f "$patch_file" ]; then
+                SUSFS_PATCH="$patch_file"
+                echo "📦 Found SUSFS patch: $(basename $patch_file)"
+                break
+              fi
+            done
+          fi
+          
+          if [ -z "$SUSFS_PATCH" ]; then
+            echo "⚠️ No SUSFS patch found, skipping patch application"
+            echo "ℹ️ You can manually apply patches from SUSFS_Patches directory"
+            exit 0
+          fi
+          
+          # Check if already patched
+          if grep -q "CONFIG_KSU_SUSFS" fs/namespace.c 2>/dev/null; then
+            echo "✅ SUSFS appears to be already patched"
+            exit 0
+          fi
+          
+          # Apply patch
+          echo "🔨 Applying SUSFS patch..."
+          if patch -p1 < "$SUSFS_PATCH"; then
+            echo "✅ SUSFS patch applied successfully"
+          else
+            echo "⚠️ Some parts of the patch may have failed"
+            echo "ℹ️ Check for .rej files and resolve conflicts manually"
+            find . -name "*.rej" -type f
+          fi
+          
+          echo "=========================================="
+          echo "  SUSFS Integration Complete"
+          echo "=========================================="
+          SCRIPT
+          
+          chmod +x apply_susfs_patches.sh
+          echo "✅ SUSFS integration script created"
+
       - name: Integrate NoMount into Kernel Source
         run: |
           set -euo pipefail
