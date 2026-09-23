@@ -325,7 +325,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Building kernel with AOSP Clang ==="
-          make -j"$(nproc)" O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1
+          make -j"$(nproc)" O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-
+
           echo "=== Build finished, listing outputs ==="
           ls -la out/arch/arm64/boot/
 
