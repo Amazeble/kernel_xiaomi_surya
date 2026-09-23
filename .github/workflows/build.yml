@@ -202,6 +202,24 @@ jobs:
           fi
 
           cd ../..
+      - name: Remove old SUSFS v1.5.5 files from kernel tree
+        run: |
+          set -euo pipefail
+          echo "🗑️ Removing old SUSFS v1.5.5 files..."
+          # These are the v1.5.5 files that conflict with v2.3.0
+          for f in include/linux/susfs.h include/linux/susfs_def.h fs/susfs.c; do
+            if [ -f "$f" ]; then
+              echo "  Removing $f"
+              rm -f "$f"
+            fi
+          done
+          # Remove any v1.5.5 SUSFS object references from fs/Makefile
+          # (the v2.3.0 patch will re-add the correct one)
+          if grep -q 'obj-.*CONFIG_KSU_SUSFS.*susfs\.o' fs/Makefile 2>/dev/null; then
+            sed -i '/obj-.*CONFIG_KSU_SUSFS.*susfs\.o/d' fs/Makefile
+            echo "  Cleaned susfs.o from fs/Makefile"
+          fi
+          echo "✅ Old SUSFS v1.5.5 files removed"
 
       - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
         run: |
