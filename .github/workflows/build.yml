@@ -36,34 +36,6 @@ jobs:
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
 
-      - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
-        run: |
-          set -euo pipefail
-          GIT_HOST="https://github.com"
-          DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
-          git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
-          mkdir -p drivers/net/wireless/realtek
-          cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
-          rm -rf /tmp/nethunter
-          find drivers/net/wireless/realtek/rtw88 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/NL80211_SCAN_FLAG_RANDOM_SN/NL80211_SCAN_FLAG_RANDOM_ADDR/g' {} +
-          find drivers/net/wireless/realtek/rtw88 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/RX_FLAG_NO_PSDU/0/g' {} +
-          if grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "ERROR: SN NOT PATCHED"
-            exit 1
-          else
-            echo "SN PATCHED OK"
-          fi
-          if grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "ERROR: PSDU NOT PATCHED"
-            exit 1
-          else
-            echo "PSDU PATCHED OK"
-          fi
-          grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
-            sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
-          grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
-            echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
-
       - name: Integrate KernelSU (ReSukiSU) into drivers/kernelsu
         run: |
           set -euo pipefail
@@ -137,7 +109,7 @@ jobs:
         run: |
           echo "🔽 Cloning NonGKI_Kernel_Build_2nd repository for SUSFS support..."
           git clone --depth=1 https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd.git nongki_build_temp
-          
+
           # Copy SUSFS patches to a accessible location
           if [ -d "nongki_build_temp/Patches" ]; then
             cp -r nongki_build_temp/Patches ./SUSFS_Patches
@@ -146,22 +118,22 @@ jobs:
           else
             echo "⚠️ Patches directory not found in NonGKI_Kernel_Build_2nd"
           fi
-          
+
           # Cleanup temp directory
           rm -rf nongki_build_temp
 
       - name: Integrate SUSFS into KernelSU driver
         run: |
           echo "🔧 Integrating SUSFS support into KernelSU..."
-          
+
           cd drivers/kernelsu
-          
+
           # Check if SUSFS config options exist in Kconfig
           if grep -q "KSU_SUSFS" Kconfig; then
             echo "✅ SUSFS options already present in Kconfig"
           else
             echo "ℹ️ Adding SUSFS configuration options to Kconfig..."
-            
+
             cat >> Kconfig << 'EOF'
 
           config KSU_SUSFS
@@ -225,118 +197,11 @@ jobs:
               help
                 Enable memory map hiding.
           EOF
-            
+
             echo "✅ SUSFS Kconfig options added"
           fi
-          
+
           cd ../..
-
-      - name: Update Makefile for SUSFS
-        run: |
-          echo "🔧 Updating Makefile for SUSFS compilation support..."
-          
-          DRIVER_MAKEFILE="drivers/Makefile"
-          
-          # Check if kernelsu entry already exists
-          if grep -q "kernelsu" "$DRIVER_MAKEFILE"; then
-            echo "✅ KernelSU entry already exists in Makefile"
-          else
-            echo "" >> "$DRIVER_MAKEFILE"
-            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_MAKEFILE"
-            echo "✅ Added KernelSU to Makefile"
-          fi
-          
-          # Display the updated Makefile
-          echo "📄 Updated Makefile content:"
-          tail -5 "$DRIVER_MAKEFILE"
-
-      - name: Update Kconfig for KernelSU source
-        run: |
-          echo "🔧 Updating drivers/Kconfig..."
-          
-          DRIVER_KCONFIG="drivers/Kconfig"
-          
-          if grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"; then
-            echo "✅ KernelSU Kconfig source already exists"
-          else
-            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
-            echo "✅ Added KernelSU Kconfig source"
-          fi
-
-      - name: Create SUSFS integration script
-        run: |
-          echo "🔧 Creating SUSFS patch application script..."
-          
-          cat > apply_susfs_patches.sh << 'SCRIPT'
-          #!/bin/bash
-          set -e
-          
-          echo "=========================================="
-          echo "  SUSFS Patch Application Script"
-          echo "=========================================="
-          
-          KERNEL_DIR="${1:-.}"
-          PATCHES_DIR="${2:-./SUSFS_Patches}"
-          
-          cd "$KERNEL_DIR"
-          
-          # Detect kernel version
-          if [ -f "Makefile" ]; then
-            KERNEL_VERSION=$(head -n 3 Makefile | grep -E 'VERSION|PATCHLEVEL' | awk '{print $3}' | paste -sd '.')
-            echo "📋 Detected kernel version: $KERNEL_VERSION"
-          else
-            echo "❌ Makefile not found in kernel directory"
-            exit 1
-          fi
-          
-          # Find appropriate SUSFS patch
-          SUSFS_PATCH=""
-          if [ -d "$PATCHES_DIR/Patch" ]; then
-            for patch_file in "$PATCHES_DIR/Patch"/susfs_patch_to_*.patch; do
-              if [ -f "$patch_file" ]; then
-                SUSFS_PATCH="$patch_file"
-                echo "📦 Found SUSFS patch: $(basename $patch_file)"
-                break
-              fi
-            done
-          fi
-          
-          if [ -z "$SUSFS_PATCH" ]; then
-            echo "⚠️ No SUSFS patch found, skipping patch application"
-            echo "ℹ️ You can manually apply patches from SUSFS_Patches directory"
-            exit 0
-          fi
-          
-          # Check if already patched
-          if grep -q "CONFIG_KSU_SUSFS" fs/namespace.c 2>/dev/null; then
-            echo "✅ SUSFS appears to be already patched"
-            exit 0
-          fi
-          
-          # Apply patch
-          echo "🔨 Applying SUSFS patch..."
-          if patch -p1 < "$SUSFS_PATCH"; then
-            echo "✅ SUSFS patch applied successfully"
-          else
-            echo "⚠️ Some parts of the patch may have failed"
-            echo "ℹ️ Check for .rej files and resolve conflicts manually"
-            find . -name "*.rej" -type f
-          fi
-          
-          echo "=========================================="
-          echo "  SUSFS Integration Complete"
-          echo "=========================================="
-          SCRIPT
-          
-          chmod +x apply_susfs_patches.sh
-          echo "✅ SUSFS integration script created"
-
-      - name: Integrate NoMount into Kernel Source
-        run: |
-          set -euo pipefail
-          echo "Integrating NoMount (dev branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
-          echo "NoMount integration completed successfully!"
 
       - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
         run: |
@@ -348,12 +213,12 @@ jobs:
           chmod +x /tmp/susfs-nongki/apply_patches.sh
           cd /tmp/susfs-nongki
           echo "[+] Applying patches to kernel source..."
-          
+
           if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
             echo "::warning::SUSFS patches failed to apply cleanly. Reject files detected."
             find "$GITHUB_WORKSPACE" -name '*.rej' -print
           fi
-          
+
           echo "[+] Cleaning up patch artifacts..."
           cd "$GITHUB_WORKSPACE"
           find . -name "*.rej" -delete 2>/dev/null || true
@@ -414,7 +279,7 @@ jobs:
               content = re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_update_sus_kstat(void __user **user_info);', content)
               path.write_text(content)
           PYEOF
-          
+
           git diff --check || true
           echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
 
@@ -461,6 +326,117 @@ jobs:
                       f.write('\n' + '\n'.join(additions) + '\n')
           PYEOF
           echo "[+] ZeroMount stub header and SUSFS compat stubs created."
+
+      - name: Update Makefile for SUSFS
+        run: |
+          echo "🔧 Updating Makefile for SUSFS compilation support..."
+
+          DRIVER_MAKEFILE="drivers/Makefile"
+
+          # Check if kernelsu entry already exists
+          if grep -q "kernelsu" "$DRIVER_MAKEFILE"; then
+            echo "✅ KernelSU entry already exists in Makefile"
+          else
+            echo "" >> "$DRIVER_MAKEFILE"
+            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_MAKEFILE"
+            echo "✅ Added KernelSU to Makefile"
+          fi
+
+          # Display the updated Makefile
+          echo "📄 Updated Makefile content:"
+          tail -5 "$DRIVER_MAKEFILE"
+
+      - name: Update Kconfig for KernelSU source
+        run: |
+          echo "🔧 Updating drivers/Kconfig..."
+
+          DRIVER_KCONFIG="drivers/Kconfig"
+
+          if grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"; then
+            echo "✅ KernelSU Kconfig source already exists"
+          else
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_KCONFIG"
+            echo "✅ Added KernelSU Kconfig source"
+          fi
+
+      - name: Apply SUSFS patches based on kernel version
+        run: |
+          set -euo pipefail
+          echo "🔧 Applying SUSFS patches based on kernel version..."
+
+          # Detect kernel version from the top-level Makefile
+          KERNEL_VERSION=$(head -n 3 Makefile | grep -E 'VERSION|PATCHLEVEL' | awk '{print $3}' | paste -sd '.')
+          FIRST_VERSION=$(echo "$KERNEL_VERSION" | awk -F '.' '{print $1}')
+          SECOND_VERSION=$(echo "$KERNEL_VERSION" | awk -F '.' '{print $2}')
+          echo "📋 Detected kernel version: $KERNEL_VERSION"
+
+          # Select the SUSFS base patch matching this kernel version (4.9 / 4.14 / 4.19 / 5.4)
+          SUSFS_PATCH="SUSFS_Patches/Patch/susfs_patch_to_${FIRST_VERSION}.${SECOND_VERSION}.patch"
+          if [ ! -f "$SUSFS_PATCH" ]; then
+            echo "⚠️ No SUSFS patch available for kernel ${FIRST_VERSION}.${SECOND_VERSION}, skipping base patch"
+            exit 0
+          fi
+          echo "📦 Using SUSFS patch: $(basename "$SUSFS_PATCH")"
+
+          # Apply the version-matched SUSFS base patch (--forward skips already-applied hunks)
+          echo "🔨 Applying SUSFS base patch..."
+          if patch -p1 --forward < "$SUSFS_PATCH"; then
+            echo "✅ SUSFS base patch applied successfully"
+          else
+            echo "::warning::SUSFS base patch had conflicts (possibly already applied). Listing rejects:"
+            find . -name "*.rej" -type f || true
+          fi
+
+          # Apply SUSFS inline hooks (SUSFS v2.3.00+), if present
+          if [ -f "SUSFS_Patches/susfs_inline_hook_patches.sh" ]; then
+            echo "🔨 Applying SUSFS inline hooks..."
+            chmod +x SUSFS_Patches/susfs_inline_hook_patches.sh
+            bash SUSFS_Patches/susfs_inline_hook_patches.sh || echo "::warning::SUSFS inline hooks reported issues"
+            echo "✅ SUSFS inline hooks step finished"
+          fi
+
+          # Clean up any patch artifacts
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
+
+          echo "=========================================="
+          echo "  SUSFS Integration Complete"
+          echo "=========================================="
+
+      - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
+        run: |
+          set -euo pipefail
+          GIT_HOST="https://github.com"
+          DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
+          git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
+          mkdir -p drivers/net/wireless/realtek
+          cp -r /tmp/nethunter/drivers/net/wireless/realtek/rtw88 drivers/net/wireless/realtek/rtw88
+          rm -rf /tmp/nethunter
+          find drivers/net/wireless/realtek/rtw88 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/NL80211_SCAN_FLAG_RANDOM_SN/NL80211_SCAN_FLAG_RANDOM_ADDR/g' {} +
+          find drivers/net/wireless/realtek/rtw88 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i 's/RX_FLAG_NO_PSDU/0/g' {} +
+          if grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 > /dev/null; then
+            echo "ERROR: SN NOT PATCHED"
+            exit 1
+          else
+            echo "SN PATCHED OK"
+          fi
+          if grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 > /dev/null; then
+            echo "ERROR: PSDU NOT PATCHED"
+            exit 1
+          else
+            echo "PSDU PATCHED OK"
+          fi
+          grep -q 'realtek/rtw88/Kconfig' drivers/net/wireless/realtek/Kconfig || \
+            sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
+          grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
+            echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
+
+      - name: Integrate NoMount into Kernel Source
+        run: |
+          set -euo pipefail
+          echo "Integrating NoMount (dev branch) into kernel source..."
+          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
+          echo "NoMount integration completed successfully!"
 
       - name: Generate and Force Feature Defconfig
         run: |
