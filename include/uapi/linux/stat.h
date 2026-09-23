@@ -1,11 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 #ifndef _UAPI_LINUX_STAT_H
 #define _UAPI_LINUX_STAT_H
-
 #include <linux/types.h>
 
-#if defined(__KERNEL__) || !defined(__GLIBC__) || (__GLIBC__ < 2)
-
+#if defined(KERNEL) || !defined(GLIBC) || (GLIBC< 2)
 #define S_IFMT  00170000
 #define S_IFSOCK 0140000
 #define S_IFLNK	 0120000
@@ -30,29 +28,23 @@
 #define S_IRUSR 00400
 #define S_IWUSR 00200
 #define S_IXUSR 00100
-
 #define S_IRWXG 00070
 #define S_IRGRP 00040
 #define S_IWGRP 00020
 #define S_IXGRP 00010
-
 #define S_IRWXO 00007
 #define S_IROTH 00004
 #define S_IWOTH 00002
 #define S_IXOTH 00001
-
 #endif
 
 /*
- * Timestamp structure for the timestamps in struct statx.
- *
- * tv_sec holds the number of seconds before (negative) or after (positive)
- * 00:00:00 1st January 1970 UTC.
- *
- * tv_nsec holds a number of nanoseconds (0..999,999,999) after the tv_sec time.
- *
- * __reserved is held in case we need a yet finer resolution.
- */
+Timestamp structure for the timestamps in struct statx.
+tv_sec holds the number of seconds before (negative) or after (positive)
+00:00:00 1st January 1970 UTC.
+tv_nsec holds a number of nanoseconds (0..999,999,999) after the tv_sec time.
+__reserved is held in case we need a yet finer resolution.
+*/
 struct statx_timestamp {
 	__s64	tv_sec;
 	__u32	tv_nsec;
@@ -60,41 +52,29 @@ struct statx_timestamp {
 };
 
 /*
- * Structures for the extended file attribute retrieval system call
- * (statx()).
- *
- * The caller passes a mask of what they're specifically interested in as a
- * parameter to statx().  What statx() actually got will be indicated in
- * st_mask upon return.
- *
- * For each bit in the mask argument:
- *
- * - if the datum is not supported:
- *
- *   - the bit will be cleared, and
- *
- *   - the datum will be set to an appropriate fabricated value if one is
- *     available (eg. CIFS can take a default uid and gid), otherwise
- *
- *   - the field will be cleared;
- *
- * - otherwise, if explicitly requested:
- *
- *   - the datum will be synchronised to the server if AT_STATX_FORCE_SYNC is
- *     set or if the datum is considered out of date, and
- *
- *   - the field will be filled in and the bit will be set;
- *
- * - otherwise, if not requested, but available in approximate form without any
- *   effort, it will be filled in anyway, and the bit will be set upon return
- *   (it might not be up to date, however, and no attempt will be made to
- *   synchronise the internal state first);
- *
- * - otherwise the field and the bit will be cleared before returning.
- *
- * Items in STATX_BASIC_STATS may be marked unavailable on return, but they
- * will have values installed for compatibility purposes so that stat() and
- * co. can be emulated in userspace.
+Structures for the extended file attribute retrieval system call
+(statx()).
+The caller passes a mask of what they're specifically interested in as a
+parameter to statx().  What statx() actually got will be indicated in
+st_mask upon return.
+For each bit in the mask argument:
+if the datum is not supported:
+the bit will be cleared, and
+the datum will be set to an appropriate fabricated value if one is
+available (eg. CIFS can take a default uid and gid), otherwise
+the field will be cleared;
+otherwise, if explicitly requested:
+the datum will be synchronised to the server if AT_STATX_FORCE_SYNC is
+set or if the datum is considered out of date, and
+the field will be filled in and the bit will be set;
+otherwise, if not requested, but available in approximate form without any
+effort, it will be filled in anyway, and the bit will be set upon return
+(it might not be up to date, however, and no attempt will be made to
+synchronise the internal state first);
+otherwise the field and the bit will be cleared before returning.
+Items in STATX_BASIC_STATS may be marked unavailable on return, but they
+will have values installed for compatibility purposes so that stat() and
+co. can be emulated in userspace.
  */
 struct statx {
 	/* 0x00 */
@@ -128,12 +108,10 @@ struct statx {
 };
 
 /*
- * Flags to be stx_mask
- *
- * Query request/result mask for statx() and struct statx::stx_mask.
- *
- * These bits should be set in the mask argument of statx() to request
- * particular items when calling statx().
+Flags to be stx_mask
+Query request/result mask for statx() and struct statx::stx_mask.
+These bits should be set in the mask argument of statx() to request
+particular items when calling statx().
  */
 #define STATX_TYPE		0x00000001U	/* Want/got stx_mode & S_IFMT */
 #define STATX_MODE		0x00000002U	/* Want/got stx_mode & ~S_IFMT */
@@ -152,16 +130,14 @@ struct statx {
 #define STATX__RESERVED		0x80000000U	/* Reserved for future struct statx expansion */
 
 /*
- * Attributes to be found in stx_attributes and masked in stx_attributes_mask.
- *
- * These give information about the features or the state of a file that might
- * be of use to ordinary userspace programs such as GUIs or ls rather than
- * specialised tools.
- *
- * Note that the flags marked [I] correspond to generic FS_IOC_FLAGS
- * semantically.  Where possible, the numerical value is picked to correspond
- * also.
- */
+Attributes to be found in stx_attributes and masked in stx_attributes_mask.
+These give information about the features or the state of a file that might
+be of use to ordinary userspace programs such as GUIs or ls rather than
+specialised tools.
+Note that the flags marked [I] correspond to generic FS_IOC_FLAGS
+semantically.  Where possible, the numerical value is picked to correspond
+also.
+*/
 #define STATX_ATTR_COMPRESSED		0x00000004 /* [I] File is compressed by the fs */
 #define STATX_ATTR_IMMUTABLE		0x00000010 /* [I] File is marked immutable */
 #define STATX_ATTR_APPEND		0x00000020 /* [I] File is append-only */
@@ -170,5 +146,11 @@ struct statx {
 #define STATX_ATTR_AUTOMOUNT		0x00001000 /* Dir: Automount trigger */
 #define STATX_ATTR_VERITY		0x00100000 /* [I] Verity protected file */
 
+/* SUSFS custom STATX flags */
+#define STATX_SUS_KSTAT          (1ULL << 63)
+#define STATX_SUS_KSTAT_FUSE     (1ULL << 62)
+
+/* SUSFS helper macro */
+#define SUSFS_IS_INODE_SUS_MAP(inode) 0
 
 #endif /* _UAPI_LINUX_STAT_H */
