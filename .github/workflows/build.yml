@@ -1,4 +1,4 @@
-name: ELISE KERNEL
+jname: ELISE KERNEL
 
 on:
   push:
@@ -319,8 +319,65 @@ jobs:
           # Note: Your original file cut off here at `CONFIG_]`. 
           # Add any remaining module configurations below this line.
           # ./scripts/config --file out/.config --module CONFIG_YOUR_MISSING_MODULE
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v5
+
+      - name: Build Kernel
+        run: |
+          set -euo pipefail
+          echo "=== Building kernel with AOSP Clang ==="
+          make -j"$(nproc)" O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1
+          echo "=== Build finished, listing outputs ==="
+          ls -la out/arch/arm64/boot/
+
+      - name: Package Kernel into Zip
+        run: |
+          set -euo pipefail
+          BUILD_DATE="$(date +'%Y%m%d')"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          ZIP_NAME="ELISE-Kernel-surya-${BUILD_DATE}-${SHORT_SHA}"
+          STAGE="dist/${ZIP_NAME}"
+          mkdir -p "${STAGE}/dtbs"
+
+          # --- Kernel image ---
+          if [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz "${STAGE}/"
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image "${STAGE}/"
+          else
+            echo "::error::No kernel image found!"
+            exit 1
+          fi
+
+          # --- Device tree blobs ---
+          find out/arch/arm64/boot/dts -name "*.dtb" -exec cp {} "${STAGE}/dtbs/" \; || true
+
+          # --- DTBO image (only if your tree builds one) ---
+          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img "${STAGE}/" || true
+
+          # --- Modules (only if any .ko were built) ---
+          if find out/ -name "*.ko" | grep -q .; then
+            mkdir -p "${STAGE}/modules"
+            find out/ -name "*.ko" -exec cp {} "${STAGE}/modules/" \;
+          fi
+
+          # --- Build info ---
+          {
+            echo "Kernel   : ELISE KERNEL"
+            echo "Device   : xiaomi surya"
+            echo "Date     : ${BUILD_DATE}"
+            echo "Commit   : ${SHORT_SHA}"
+            echo "Toolchain: AOSP clang-498229"
+            echo "Features : ReSukiSU (manual hooks) + SUSFS 2.1"
+          } > "${STAGE}/BUILD_INFO.txt"
+
+          # --- Create the zip ---
+          (cd dist && zip -r9 "${ZIP_NAME}.zip" "${ZIP_NAME}")
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
+          ls -la dist/
+
+      - name: Upload Kernel Zip as Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ZIPNAME }}
-          path: ${{ env.ZIPNAME }}
+          name: ${{ env.ZIP_NAME }}
+          path: dist/${{ env.ZIP_NAME }}.zip
+          if-no-files-found: error
+          retention-days: 30
