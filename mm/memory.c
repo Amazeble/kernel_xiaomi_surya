@@ -80,11 +80,28 @@
 #include <asm/pgtable.h>
 
 #include "internal.h"
-
+#include <asm/pgtable.h>
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+#include <linux/susfs_def.h>
+#endif
+#include "internal.h"
 #if defined(LAST_CPUPID_NOT_IN_PAGE_FLAGS) && !defined(CONFIG_COMPILE_TEST)
 #warning Unfortunate NUMA and NUMA Balancing config, growing page-frame for last_cpupid.
 #endif
 
+	down_read(&mm->mmap_sem);
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	vma = find_vma(mm, addr);
+#endif
+	while (len) {
+		int bytes, ret, offset;
+		void *maddr;
+		struct page *page = NULL;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		if (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+			break;
+#endif
+		ret = get_user_pages_remote(tsk, mm, addr, 1, gup_flags, &page, &vma, NULL);
 #ifndef CONFIG_NEED_MULTIPLE_NODES
 /* use the per-pgdat data instead for discontigmem - mbligh */
 unsigned long max_mapnr;
