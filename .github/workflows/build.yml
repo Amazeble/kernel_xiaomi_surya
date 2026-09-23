@@ -319,3 +319,8 @@ jobs:
           # Note: Your original file cut off here at `CONFIG_]`. 
           # Add any remaining module configurations below this line.
           # ./scripts/config --file out/.config --module CONFIG_YOUR_MISSING_MODULE
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.ZIPNAME }}
+          path: ${{ env.ZIPNAME }}
