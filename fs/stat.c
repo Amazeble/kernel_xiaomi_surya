@@ -20,17 +20,6 @@
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
 #include <linux/version.h>
-
-/* Custom layout mapping for out-of-date patch strings */
-#ifndef STATX_SUS_KSTAT
-#define STATX_SUS_KSTAT        0x00008000U
-#endif
-#ifndef STATX_SUS_KSTAT_FUSE
-#define STATX_SUS_KSTAT_FUSE   0x00010000U
-#endif
-
-#define susfs_is_current_app_uid() susfs_is_current_proc_umounted()
-void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 mask);
 #endif
 
 #ifdef CONFIG_ZEROMOUNT
@@ -48,23 +37,9 @@ void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *s
  * found on the VFS inode structure.  This is the default if no getattr inode
  * operation is supplied.
  */
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-extern void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);
-#endif
 
 void generic_fillattr(struct inode *inode, struct kstat *stat)
 {
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-	if (likely(susfs_is_current_proc_umounted()) &&
-			unlikely(inode->i_state & BIT_SUS_KSTAT)) {
-		susfs_sus_ino_for_generic_fillattr(inode->i_ino, stat);
-		stat->mode = inode->i_mode;
-		stat->rdev = inode->i_rdev;
-		stat->uid = inode->i_uid;
-		stat->gid = inode->i_gid;
-		return;
-	}
-#endif
 	stat->dev = inode->i_sb->s_dev;
 	stat->ino = inode->i_ino;
 	stat->mode = inode->i_mode;
@@ -99,6 +74,12 @@ EXPORT_SYMBOL(generic_fillattr);
  * filehandle lookup code, which uses only the inode number and returns no
  * attributes to any user.  Any other code probably wants vfs_getattr.
  */
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
+extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode,
+						   struct kstat *stat, u32 result_mask);
+#endif
+
 int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 		      u32 request_mask, unsigned int query_flags)
 {
@@ -108,15 +89,47 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	stat->result_mask |= STATX_BASIC_STATS;
 	request_mask &= STATX_ALL;
 	query_flags &= KSTAT_QUERY_FLAGS;
-	if (inode->i_op->getattr)
-		return inode->i_op->getattr(path, stat, request_mask,
-					    query_flags);
 
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (susfs_is_current_app_uid()) {
+		bool is_fuse = false;
+		if (susfs_is_inode_sus_kstat(inode, &is_fuse)) {
+			if (!is_fuse)
+				stat->result_mask |= STATX_SUS_KSTAT;
+			stat->result_mask |= STATX_SUS_KSTAT_FUSE;
+		}
+	}
+	if (inode->i_op->getattr) {
+		int err = inode->i_op->getattr(path, stat, request_mask, query_flags);
+		if (!err) {
+			if (stat->result_mask & STATX_SUS_KSTAT) {
+				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
+				return err;
+			}
+			if (stat->result_mask & STATX_SUS_KSTAT_FUSE) {
+				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
+				return err;
+			}
+		}
+		return err;
+	}
+	if (stat->result_mask & STATX_SUS_KSTAT) {
+		generic_fillattr(inode, stat);
+		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
+		return 0;
+	}
+	if (stat->result_mask & STATX_SUS_KSTAT_FUSE) {
+		generic_fillattr(inode, stat);
+		susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
+		return 0;
+	}
+#else
+	if (inode->i_op->getattr)
+		return inode->i_op->getattr(path, stat, request_mask, query_flags);
+#endif
 	generic_fillattr(inode, stat);
 	return 0;
 }
-EXPORT_SYMBOL(vfs_getattr_nosec);
-
 /*
  * vfs_getattr - Get the enhanced basic attributes of a file
  * @path: The file of interest
@@ -256,94 +269,6 @@ static int cp_old_stat(struct kstat *stat, struct __old_kernel_stat __user * sta
 	tmp.st_ino = stat->ino;
 	if (sizeof(tmp.st_ino) < sizeof(stat->ino) && tmp.st_ino != stat->ino)
 		return -EOVERFLOW;
-	tmp.st_mode = stat->mode;
-	tmp.st_nlink = stat->nlink;
-	if (tmp.st_nlink != stat->nlink)
-		return -EOVERFLOW;
-	SET_UID(tmp.st_uid, from_kuid_munged(current_user_ns(), stat->uid));
-	SET_GID(tmp.st_gid, from_kgid_munged(current_user_ns(), stat->gid));
-	tmp.st_rdev = old_encode_dev(stat->rdev);
-#if BITS_PER_LONG == 32
-	if (stat->size > MAX_NON_LFS)
-		return -EOVERFLOW;
-#endif
-	tmp.st_size = stat->size;
-	tmp.st_atime = stat->atime.tv_sec;
-	tmp.st_mtime = stat->mtime.tv_sec;
-	tmp.st_ctime = stat->ctime.tv_sec;
-	return copy_to_user(statbuf,&tmp,sizeof(tmp)) ? -EFAULT : 0;
-}
-
-SYSCALL_DEFINE2(stat, const char __user *, filename,
-		struct __old_kernel_stat __user *, statbuf)
-{
-	struct kstat stat;
-	int error;
-
-	error = vfs_stat(filename, &stat);
-	if (error)
-		return error;
-
-	return cp_old_stat(&stat, statbuf);
-}
-
-// Custom hook processing for mismatch structures
-#ifdef CONFIG_KSU_SUSFS
-void handle_mismatched_statx(struct inode *inode, struct kstat *stat, u32 mask) {
-	if (susfs_is_current_app_uid()) {
-		if (mask & STATX_SUS_KSTAT) {
-			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
-		}
-		if (mask & STATX_SUS_KSTAT_FUSE) {
-			susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
-		}
-	}
-}
-#endif
-
-SYSCALL_DEFINE2(lstat, const char __user *, filename,
-		struct __old_kernel_stat __user *, statbuf)
-{
-	struct kstat stat;
-	int error;
-
-	error = vfs_lstat(filename, &stat);
-	if (error)
-		return error;
-
-	return cp_old_stat(&stat, statbuf);
-}
-
-SYSCALL_DEFINE2(fstat, unsigned int, fd, struct __old_kernel_stat __user *, statbuf)
-{
-	struct kstat stat;
-	int error = vfs_fstat(fd, &stat);
-
-	if (!error)
-		error = cp_old_stat(&stat, statbuf);
-
-	return error;
-}
-
-#endif /* __ARCH_WANT_OLD_STAT */
-
-#if BITS_PER_LONG == 32
-#  define choose_32_64(a,b) a
-#else
-#  define choose_32_64(a,b) b
-#endif
-
-#ifndef INIT_STRUCT_STAT_PADDING
-#  define INIT_STRUCT_STAT_PADDING(st) memset(&st, 0, sizeof(st))
-#endif
-
-static int cp_new_stat(struct kstat *stat, struct stat __user *statbuf)
-{
-	struct stat tmp;
-
-	if (sizeof(tmp.st_dev) < 4 && !old_valid_dev(stat->dev))
-		return -EOVERFLOW;
-
 	tmp.st_mode = stat->mode;
 	tmp.st_nlink = stat->nlink;
 	if (tmp.st_nlink != stat->nlink)
