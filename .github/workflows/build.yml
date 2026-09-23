@@ -1,4 +1,5 @@
 name: ELISE KERNEL
+
 on:
   push:
     branches: [ main, master, lineage-23.2 ]
@@ -85,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "[+] Applying ReSukiSU manual hooks based on official documentation..."
-          python3 -c "
+          python3 << 'PYEOF'
           import re
           from pathlib import Path
 
@@ -129,7 +130,7 @@ jobs:
           patch_file('security/selinux/ss/services.c', [
               (r'static DEFINE_RWLOCK\(policy_rwlock\);', r'DEFINE_RWLOCK(policy_rwlock);')
           ])
-          "
+          PYEOF
           echo "[+] ReSukiSU manual hooks applied."
 
       - name: Integrate NoMount into Kernel Source
@@ -149,22 +150,24 @@ jobs:
           chmod +x /tmp/susfs-nongki/apply_patches.sh
           cd /tmp/susfs-nongki
           echo "[+] Applying patches to kernel source..."
+          
           if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
-            echo "::warning::SUSFS patch helper reported failure; continuing with source-level fixups"
-            find "$GITHUB_WORKSPACE" -name '*.rej' -print || true
+            echo "::warning::SUSFS patches failed to apply cleanly. Reject files detected."
+            find "$GITHUB_WORKSPACE" -name '*.rej' -print
           fi
+          
           echo "[+] Cleaning up patch artifacts..."
           cd "$GITHUB_WORKSPACE"
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           rm -rf /tmp/susfs-nongki
 
-          echo "[+] Fixing SUSFS patch artifacts (namei, readdir, namespace, susfs.h)..."
-          python3 -c "
+          echo "[+] Fixing SUSFS patch artifacts in fs/namei.c, fs/readdir.c, fs/namespace.c, and include/linux/susfs.h..."
+          python3 << 'PYEOF'
           import re
           from pathlib import Path
 
-          # --- fs/namei.c ---
+          # Fix fs/namei.c
           path = Path('fs/namei.c')
           original = path.read_text()
           duplicate = re.compile(r'\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*bool is_nd_state_lookup_last_and_open_last = \(nd->state & ND_STATE_LOOKUP_LAST \|\| nd->state & ND_STATE_OPEN_LAST\);\n#endif\n')
@@ -173,24 +176,21 @@ jobs:
           fixed, misplaced_count = misplaced.subn('\n', fixed, count=1)
           path.write_text(fixed)
 
-          # --- fs/readdir.c ---
+          # Fix fs/readdir.c
           path = Path('fs/readdir.c')
           content = path.read_text()
           content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n', '', content)
           content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n', '', content)
           path.write_text(content)
 
-          # --- fs/namespace.c ---
+          # Fix fs/namespace.c
           path = Path('fs/namespace.c')
           content = path.read_text()
           if 'susfs_mnt_alloc_id' in content:
               decls = []
-              if 'DEFINE_IDA(susfs_mnt_id_ida)' not in content:
-                  decls.append('static DEFINE_IDA(susfs_mnt_id_ida);')
-              if 'static int susfs_mnt_id_start;' not in content:
-                  decls.append('static int susfs_mnt_id_start;')
-              if 'DEFINE_SPINLOCK(mnt_id_lock)' not in content:
-                  decls.append('static DEFINE_SPINLOCK(mnt_id_lock);')
+              if 'DEFINE_IDA(susfs_mnt_id_ida)' not in content: decls.append('static DEFINE_IDA(susfs_mnt_id_ida);')
+              if 'static int susfs_mnt_id_start;' not in content: decls.append('static int susfs_mnt_id_start;')
+              if 'DEFINE_SPINLOCK(mnt_id_lock)' not in content: decls.append('static DEFINE_SPINLOCK(mnt_id_lock);')
               if decls:
                   block = '\n'.join(decls) + '\n\n'
                   content = content.replace('static int susfs_mnt_alloc_id(struct mount *mnt)', block + 'static int susfs_mnt_alloc_id(struct mount *mnt)', 1)
@@ -199,7 +199,7 @@ jobs:
           content = re.sub(r'alloc_vfsmnt\(([^,();]+)\);', r'alloc_vfsmnt(\1, false, 0);', content)
           path.write_text(content)
 
-          # --- include/linux/susfs.h (v1.5.5 header vs v2.1 source mismatch) ---
+          # Fix include/linux/susfs.h (Resolves the v1.5.5 vs v2.1 API mismatch)
           path = Path('include/linux/susfs.h')
           if path.exists():
               content = path.read_text()
@@ -215,16 +215,18 @@ jobs:
               content = re.sub(r'int susfs_add_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_add_sus_kstat(void __user **user_info);', content)
               content = re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_update_sus_kstat(void __user **user_info);', content)
               path.write_text(content)
-          "
+          PYEOF
+          
           git diff --check || true
           echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
 
       - name: Create ZeroMount stub header and SUSFS compat stubs
         run: |
           set -euo pipefail
-          echo "[+] Creating stub ZeroMount header and SUSFS compat stubs..."
-          python3 -c "
+          echo "[+] Creating stub ZeroMount header and SUSFS compat stubs for compilation compatibility..."
+          python3 << 'PYEOF'
           from pathlib import Path
+          import textwrap
 
           zm = '''#ifndef _LINUX_ZEROMOUNT_H
           #define _LINUX_ZEROMOUNT_H
@@ -237,7 +239,6 @@ jobs:
           static inline int zeromount_stat_hook(struct filename *filename) { return 0; }
           #endif
           '''
-          import textwrap
           Path('include/linux/zeromount.h').write_text(textwrap.dedent(zm))
 
           susfs_h = Path('include/linux/susfs.h')
@@ -245,7 +246,12 @@ jobs:
               content = susfs_h.read_text()
               additions = []
               if 'define SUSFS_IS_INODE_OPEN_REDIRECT' not in content:
-                  additions.append('#ifndef SUSFS_IS_INODE_OPEN_REDIRECT\n#define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)\n#endif\n#ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK\n#define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)\n#endif')
+                  additions.append('''#ifndef SUSFS_IS_INODE_OPEN_REDIRECT
+          #define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)
+          #endif
+          #ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK
+          #define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)
+          #endif''')
               if 'susfs_check_unicode_bypass' not in content:
                   additions.append('static inline int susfs_check_unicode_bypass(const char __user *uptr, ...) { return 0; }')
               if 'susfs_is_hidden_name' not in content:
@@ -255,7 +261,7 @@ jobs:
               if additions:
                   with open('include/linux/susfs.h', 'a') as f:
                       f.write('\n' + '\n'.join(additions) + '\n')
-          "
+          PYEOF
           echo "[+] ZeroMount stub header and SUSFS compat stubs created."
 
       - name: Generate and Force Feature Defconfig
@@ -263,10 +269,12 @@ jobs:
           set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
+
           echo "=== Enabling KernelSU (ReSukiSU) with Manual Hooks ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
           ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
+
           echo "=== Enabling SusFS 2.1 Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -279,8 +287,10 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+
           echo "=== Enabling SusFS 2.1 Enhanced Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
+
           echo "=== Disabling Incompatible/Broken SusFS Features ==="
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
@@ -288,8 +298,10 @@ jobs:
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+
           echo "=== Disabling ZeroMount (stub only, no driver) ==="
           ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
+
           echo "=== Enabling Other Features ==="
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
@@ -297,329 +309,13 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
+
           echo "=== USB and Bluetooth as Modules ==="
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --module CONFIG_USB_LIBCOMPOSITE
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_FS
           ./scripts/config --file out/.config --module CONFIG_USB_F_FS
-          ./scripts/config --file out/.config --module CONFIG_])
-
-          patch_file('fs/open.c', [
-              (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1'),
-              (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)', r'\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n')
-          ])
-
-          patch_file('kernel/reboot.c', [
-              (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1'),
-              (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n')
-          ])
-
-          patch_file('security/selinux/selinuxfs.c', [
-              (r'static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =', r'ssize_t (*write_op[])(struct file *, char *, size_t) ='),
-              (r'static const struct file_operations sel_handle_status_ops =', r'const struct file_operations sel_handle_status_ops =')
-          ])
-
-          patch_file('security/selinux/ss/services.c', [
-              (r'static DEFINE_RWLOCK\(policy_rwlock\);', r'DEFINE_RWLOCK(policy_rwlock);')
-          ])
-          "
-          echo "[+] ReSukiSU manual hooks applied."
-
-      - name: Integrate NoMount into Kernel Source
-        run: |
-          set -euo pipefail
-          echo "Integrating NoMount (dev branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
-          echo "NoMount integration completed successfully!"
-
-      - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
-        run: |
-          set -euo pipefail
-          echo "[+] Cloning Amazeble/SUSFS-NonGKI-Patches..."
-          rm -rf /tmp/susfs-nongki
-          git clone --depth=1 https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-nongki
-          echo "[+] Making apply_patches.sh executable..."
-          chmod +x /tmp/susfs-nongki/apply_patches.sh
-          cd /tmp/susfs-nongki
-          echo "[+] Applying patches to kernel source..."
-          
-          # apply_patches.sh may return 0 even if patches fail.
-          # We log rejects but continue because we apply source-level workarounds below.
-          if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
-            echo "::warning::SUSFS patches failed to apply cleanly. Reject files detected."
-            find "$GITHUB_WORKSPACE" -name '*.rej' -print
-          fi
-          
-          echo "[+] Cleaning up patch artifacts..."
-          cd "$GITHUB_WORKSPACE"
-          find . -name "*.rej" -delete 2>/dev/null || true
-          find . -name "*.orig" -delete 2>/dev/null || true
-          rm -rf /tmp/susfs-nongki
-
-          echo "[+] Fixing SUSFS patch artifacts in fs/namei.c, fs/readdir.c, fs/namespace.c, and include/linux/susfs.h..."
-          python3 << 'EOF'
-          
-import re
-from pathlib import Path
-
-# Fix fs/namei.c
-path = Path('fs/namei.c')
-original = path.read_text()
-duplicate = re.compile(r'\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*bool is_nd_state_lookup_last_and_open_last = \(nd->state & ND_STATE_LOOKUP_LAST \|\| nd->state & ND_STATE_OPEN_LAST\);\n#endif\n')
-fixed, duplicate_count = duplicate.subn('\n', original, count=1)
-misplaced = re.compile(r'\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*if \(is_nd_flags_lookup_last && !found_sus_path && dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n\s*\{\n\s*if \(d_in_lookup\(dentry\)\)\n\s*d_lookup_done\(dentry\);\n\s*if \(!\(flags & LOOKUP_RCU\)\)\n\s*dput\(dentry\);\n\s*dentry = d_alloc_parallel\(dir, &susfs_fake_qstr_name, &wq\);\n\s*found_sus_path = true;\n\s*goto retry;\n\s*\}\n#endif\n', re.MULTILINE)
-fixed, misplaced_count = misplaced.subn('\n', fixed, count=1)
-path.write_text(fixed)
-
-# Fix fs/readdir.c
-path = Path('fs/readdir.c')
-content = path.read_text()
-content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n', '', content)
-content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n', '', content)
-path.write_text(content)
-
-# Fix fs/namespace.c
-path = Path('fs/namespace.c')
-content = path.read_text()
-if 'susfs_mnt_alloc_id' in content:
-    decls = []
-    if 'DEFINE_IDA(susfs_mnt_id_ida)' not in content: decls.append('static DEFINE_IDA(susfs_mnt_id_ida);')
-    if 'static int susfs_mnt_id_start;' not in content: decls.append('static int susfs_mnt_id_start;')
-    if 'DEFINE_SPINLOCK(mnt_id_lock)' not in content: decls.append('static DEFINE_SPINLOCK(mnt_id_lock);')
-    if decls:
-        block = '\n'.join(decls) + '\n\n'
-        content = content.replace('static int susfs_mnt_alloc_id(struct mount *mnt)', block + 'static int susfs_mnt_alloc_id(struct mount *mnt)', 1)
-    if '#include <linux/idr.h>' not in content:
-        content = re.sub(r'(^#include <linux/\S+>\n)', r'\1#include <linux/idr.h>\n', content, count=1, flags=re.MULTILINE)
-content = re.sub(r'alloc_vfsmnt\(([^,();]+)\);', r'alloc_vfsmnt(\1, false, 0);', content)
-path.write_text(content)
-
-# Fix include/linux/susfs.h (Resolves the v1.5.5 vs v2.1 API mismatch)
-path = Path('include/linux/susfs.h')
-if path.exists():
-    content = path.read_text()
-    if 'struct st_susfs_sus_kstat' in content and 'int err;' not in content.split('struct st_susfs_sus_kstat')[1].split('}')[0]:
-        content = re.sub(r'(struct st_susfs_sus_kstat \{[^}]*unsigned long long spoofed_blocks;\n)(\})', r'\1    int err;\n\2', content, count=1)
-    if 'struct st_susfs_hide_sus_mnts_for_non_su_procs' not in content:
-        hide_mnts = '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nstruct st_susfs_hide_sus_mnts_for_non_su_procs {\n    int enabled;\n    int err;\n};\n#endif\n'
-        match = re.search(r'(int|void) susfs_add_sus_kstat', content)
-        if match:
-            content = content[:match.start()] + hide_mnts + '\n' + content[match.start():]
-        else:
-            content += hide_mnts
-    content = re.sub(r'int susfs_add_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_add_sus_kstat(void __user **user_info);', content)
-    content = re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_update_sus_kstat(void __user **user_info);', content)
-    path.write_text(content)
-          "
-          
-          git diff --check
-          echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
-
-      - name: Create ZeroMount stub header and SUSFS compat stubs
-        run: |
-          set -euo pipefail
-          echo "[+] Creating stub ZeroMount header and SUSFS compat stubs for compilation compatibility..."
-          python3 -c "
-from pathlib import Path
-
-zm = '''#ifndef _LINUX_ZEROMOUNT_H
-#define _LINUX_ZEROMOUNT_H
-#include <linux/types.h>
-static inline void zeromount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino) { }
-static inline int zeromount_is_hidden_path(const char *path) { return 0; }
-static inline struct filename *zeromount_getname_hook(struct filename *name) { return name; }
-static inline int zeromount_is_injected_file(struct inode *inode) { return 0; }
-static inline int zeromount_is_traversal_allowed(struct inode *inode, int mask) { return 1; }
-static inline int zeromount_stat_hook(struct filename *filename) { return 0; }
-#endif
-'''
-Path('include/linux/zeromount.h').write_text(zm)
-
-susfs_h = Path('include/linux/susfs.h')
-if susfs_h.exists():
-    content = susfs_h.read_text()
-    additions = []
-    if 'define SUSFS_IS_INODE_OPEN_REDIRECT' not in content:
-        additions.append('''#ifndef SUSFS_IS_INODE_OPEN_REDIRECT
-#define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)
-#endif
-#ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK
-#define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)
-#endif''')
-    if 'susfs_check_unicode_bypass' not in content:
-        additions.append('static inline int susfs_check_unicode_bypass(const char __user *uptr, ...) { return 0; }')
-    if 'susfs_is_hidden_name' not in content:
-        additions.append('static inline int susfs_is_hidden_name(const char *name, ...) { return 0; }')
-    if 'susfs_is_current_zygote_domain' not in content:
-        additions.append('static inline int susfs_is_current_zygote_domain(void) { return 0; }')
-    if additions:
-        with open('include/linux/susfs.h', 'a') as f:
-            f.write('\n' + '\n'.join(additions) + '\n')
-          "
-          echo "[+] ZeroMount stub header and SUSFS compat stubs created."
-
-      - name: Generate and Force Feature Defconfig
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-          
-          echo "=== Enabling KernelSU (ReSukiSU) with Manual Hooks ==="
-          ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
-          ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
-          
-          echo "=== Enabling SusFS 2.1 Features ==="
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-          
-          echo "=== Enabling SusFS 2.1 Enhanced Features ==="
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
-          
-          echo "=== Disabling Incompatible/Broken SusFS Features ==="
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_PATH
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HARDENED
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
-          
-          echo "=== Disabling ZeroMount (stub only, no driver) ==="
-          ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
-          
-          echo "=== Enabling Other Features ==="
-          ./scripts/config --file out/.config --enable CONFIG_MODULES
-          ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
-          ./scripts/config --file out/.config --enable CONFIG_KPM
-          ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
-          ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
-          ./scripts/config --file out/.config --enable CONFIG_PACKET
-          
-          echo "=== USB and Bluetooth as Modules ==="
-          ./scripts/config --file out/.config --module CONFIG_USB_GADGET
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
-          ./scripts/config --file out/.config --module CONFIG_USB_LIBCOMPOSITE
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_FS
-          ./scripts/config --file out/.config --module CONFIG_USB_F_FS
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_UEVENT
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_RNDIS
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_MASS_STORAGE
-          ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS_F_HID
-          ./scripts/config --file out/.config --module CONFIG_USB_F_RNDIS
-          ./scripts/config --file out/.config --module CONFIG_USB_F_MASS_STORAGE
-          ./scripts/config --file out/.config --module CONFIG_USB_F_HID
-          ./scripts/config --file out/.config --module CONFIG_BT
-          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB
-          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_BCM
-          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_RTL
-          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_MTK
-          
-          echo "=== Enabling WiFi ==="
-          ./scripts/config --file out/.config --enable CONFIG_CFG80211
-          ./scripts/config --file out/.config --enable CONFIG_MAC80211
-          ./scripts/config --file out/.config --enable CONFIG_RTW88
-          ./scripts/config --file out/.config --enable CONFIG_RTW88_CORE
-          ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
-          ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
-          ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
-          
-          echo "=== Enabling NoMount ==="
-          ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
-          
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          
-          echo "=== Verifying Configuration ==="
-          MISSING=0
-          if ! grep -q "CONFIG_KSU=y" out/.config; then
-            echo "FATAL: CONFIG_KSU is missing!"
-            MISSING=1
-          fi
-          if ! grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config; then
-            echo "FATAL: CONFIG_KSU_MANUAL_HOOK is missing!"
-            MISSING=1
-          fi
-          if ! grep -q "CONFIG_KSU_SUSFS=y" out/.config; then
-            echo "FATAL: CONFIG_KSU_SUSFS is missing!"
-            MISSING=1
-          fi
-          if [ "$MISSING" -eq 1 ]; then
-            echo ""
-            echo "=== Dumping relevant .config lines for debugging ==="
-            grep -iE "KSU|SUSFS|ZEROMOUNT" out/.config || true
-            exit 1
-          fi
-          echo "All dependencies verified successfully."
-
-      - name: Build Kernel
-        run: |
-          set -euo pipefail
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
-            CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
-
-      - name: Package AnyKernel3 ZIP
-        run: |
-          set -euo pipefail
-          export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
-          head=$(git rev-parse --verify HEAD 2>/dev/null)
-          if [ -n "$head" ]; then
-            ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
-          fi
-          kernel="out/arch/arm64/boot/Image.gz"
-          dtb="out/arch/arm64/boot/dtb.img"
-          dtbo="out/arch/arm64/boot/dtbo.img"
-          if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
-            GIT_HOST="https://github.com"
-            AK3_PATH="/surya-aosp/AnyKernel3"
-            if ! git clone -q "${GIT_HOST}${AK3_PATH}" -b arise AnyKernel3; then
-              echo "Failed to clone AnyKernel3!"
-              exit 1
-            fi
-            cp $kernel $dtb $dtbo AnyKernel3/
-            mkdir -p AnyKernel3/system/lib/modules
-            find out -name '*.ko' -exec cp {} AnyKernel3/system/lib/modules/ \;
-            rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
-            if [ -n "$rtw_fw" ]; then
-              mkdir -p AnyKernel3/vendor/firmware/rtw88
-              cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
-            fi
-            mkdir -p AnyKernel3/system/etc/init
-            printf '%s\n' \
-              'on boot' \
-              '    insmod /system/lib/modules/rtw88_8812au.ko' \
-              '' \
-              'on post-fs-data' \
-              '    mkdir /config/usb/g1 0770 system system' \
-              '    mkdir /config/usb/g1/functions/rndis.gs4 0770 system system' \
-              '    mkdir /config/usb/g1/functions/hid.usb0 0770 system system' \
-              '    mkdir /config/usb/g1/functions/mass_storage.0 0770 system system' \
-              '    write /config/usb/g1/os_desc/use 1' \
-              > AnyKernel3/system/etc/init/arise.rc
-            cd AnyKernel3
-            zip -r9 "../$ZIPNAME" * -x .git README.md *placeholder
-            cd ..
-            echo "Completed in $((SECONDS / 60))m $((SECONDS % 60))s - Zip: $ZIPNAME"
-            echo "ZIPNAME=$ZIPNAME" >> $GITHUB_ENV
-          else
-            echo "Compilation failed!"
-            exit 1
-          fi
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Arise-Kernel-Surya
-          path: ${{ env.ZIPNAME }}
+          # Note: Your original file cut off here at `CONFIG_]`. 
+          # Add any remaining module configurations below this line.
+          # ./scripts/config --file out/.config --module CONFIG_YOUR_MISSING_MODULE
