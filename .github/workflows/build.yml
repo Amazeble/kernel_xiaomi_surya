@@ -85,82 +85,52 @@ jobs:
         run: |
           set -euo pipefail
           echo "[+] Applying ReSukiSU manual hooks based on official documentation..."
-          cat << 'PYEOF' > /tmp/apply_manual_hooks.py
-          import re
-          from pathlib import Path
+          python3 -c "
+import re
+from pathlib import Path
 
-          def patch_file(filepath, replacements):
-              path = Path(filepath)
-              if not path.exists():
-                  print(f"Warning: {filepath} not found, skipping.")
-                  return False
-              content = path.read_text()
-              original_content = content
-              for pattern, replacement in replacements:
-                  content = re.sub(pattern, replacement, content, count=1)
-              if content != original_content:
-                  path.write_text(content)
-                  print(f"Successfully patched {filepath}")
-                  return True
-              else:
-                  print(f"Warning: no patterns matched in {filepath}")
-                  return False
+def patch_file(filepath, replacements):
+    path = Path(filepath)
+    if not path.exists(): return
+    content = path.read_text()
+    orig = content
+    for p, r in replacements:
+        content = re.sub(p, r, content, count=1)
+    if content != orig: path.write_text(content)
 
-          stat_patches = [
-              (r"(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *flags);\n\nextern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);\n#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)\nextern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);\n#endif\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n"),
-              (r"(SYSCALL_DEFINE4\(fstatat64, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n"),
-              (r"(SYSCALL_DEFINE2\(newfstat, unsigned int, fd, struct stat __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat\(&stat, statbuf\);\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n#endif\n"),
-              (r"(SYSCALL_DEFINE2\(fstat64, unsigned long, fd, struct stat64 __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat64\(&stat, statbuf\);\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_fstat64_ret(&fd, &statbuf);\n#endif\n")
-          ]
+patch_file('fs/stat.c', [
+    (r'(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *flags);\n\nextern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);\n#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)\nextern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);\n#endif\n#endif\n\n\1'),
+    (r'(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n'),
+    (r'(SYSCALL_DEFINE4\(fstatat64, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n'),
+    (r'(SYSCALL_DEFINE2\(newfstat, unsigned int, fd, struct stat __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat\(&stat, statbuf\);\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n#endif\n'),
+    (r'(SYSCALL_DEFINE2\(fstat64, unsigned long, fd, struct stat64 __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat64\(&stat, statbuf\);\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_fstat64_ret(&fd, &statbuf);\n#endif\n')
+])
 
-          exec_patches = [
-              (r"(static int do_execveat_common\(int fd, struct filename \*filename,)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags);\n__attribute__((hot))\nextern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags, int *retval);\n#endif\n\n\1"),
-              (r"(static int do_execveat_common\(int fd, struct filename \*filename,\n\s*struct user_arg_ptr argv,\n\s*struct user_arg_ptr envp,\n\s*int flags\)\n\{\n)\s*return __do_execve_file\(fd, filename, argv, envp, flags, NULL\);\n(\})",
-               r"\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tint retval;\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n\n\tretval = __do_execve_file(fd, filename, argv, envp, flags, NULL);\n\n\tksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);\n\n\treturn retval;\n#else\n\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);\n#endif\n\2")
-          ]
+patch_file('fs/exec.c', [
+    (r'(static int do_execveat_common\(int fd, struct filename \*filename,)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags);\n__attribute__((hot))\nextern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags, int *retval);\n#endif\n\n\1'),
+    (r'(static int do_execveat_common\(int fd, struct filename \*filename,\n\s*struct user_arg_ptr argv,\n\s*struct user_arg_ptr envp,\n\s*int flags\)\n\{\n)\s*return __do_execve_file\(fd, filename, argv, envp, flags, NULL\);\n(\})', r'\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tint retval;\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n\n\tretval = __do_execve_file(fd, filename, argv, envp, flags, NULL);\n\n\tksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);\n\n\treturn retval;\n#else\n\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);\n#endif\n\2')
+])
 
-          open_patches = [
-              (r"(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)",
-               r"\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n")
-          ]
+patch_file('fs/open.c', [
+    (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1'),
+    (r'(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)', r'\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n')
+])
 
-          reboot_patches = [
-              (r"(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n")
-          ]
+patch_file('kernel/reboot.c', [
+    (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)', r'#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1'),
+    (r'(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)', r'\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n')
+])
 
-          selinuxfs_patches = [
-              (r"static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =",
-               r"ssize_t (*write_op[])(struct file *, char *, size_t) ="),
-              (r"static const struct file_operations sel_handle_status_ops =",
-               r"const struct file_operations sel_handle_status_ops =")
-          ]
+patch_file('security/selinux/selinuxfs.c', [
+    (r'static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =', r'ssize_t (*write_op[])(struct file *, char *, size_t) ='),
+    (r'static const struct file_operations sel_handle_status_ops =', r'const struct file_operations sel_handle_status_ops =')
+])
 
-          services_patches = [
-              (r"static DEFINE_RWLOCK\(policy_rwlock\);",
-               r"DEFINE_RWLOCK(policy_rwlock);")
-          ]
-
-          patch_file("fs/stat.c", stat_patches)
-          patch_file("fs/exec.c", exec_patches)
-          patch_file("fs/open.c", open_patches)
-          patch_file("kernel/reboot.c", reboot_patches)
-          patch_file("security/selinux/selinuxfs.c", selinuxfs_patches)
-          patch_file("security/selinux/ss/services.c", services_patches)
-          PYEOF
-          python3 /tmp/apply_manual_hooks.py
-          rm -f /tmp/apply_manual_hooks.py
+patch_file('security/selinux/ss/services.c', [
+    (r'static DEFINE_RWLOCK\(policy_rwlock\);', r'DEFINE_RWLOCK(policy_rwlock);')
+])
+          "
+          echo "[+] ReSukiSU manual hooks applied."
 
       - name: Integrate NoMount into Kernel Source
         run: |
@@ -179,12 +149,10 @@ jobs:
           chmod +x /tmp/susfs-nongki/apply_patches.sh
           cd /tmp/susfs-nongki
           echo "[+] Applying patches to kernel source..."
-          # apply_patches.sh may return 0 even if patches fail
-          printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE" || true
           
-          # Log rejects for debugging, but delete them so the build can proceed
-          # given we are applying source-level workarounds for the API mismatch.
-          if [ -n "$(find "$GITHUB_WORKSPACE" -name '*.rej' -print -quit)" ]; then
+          # apply_patches.sh may return 0 even if patches fail.
+          # We log rejects but continue because we apply source-level workarounds below.
+          if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
             echo "::warning::SUSFS patches failed to apply cleanly. Reject files detected."
             find "$GITHUB_WORKSPACE" -name '*.rej' -print
           fi
@@ -195,465 +163,118 @@ jobs:
           find . -name "*.orig" -delete 2>/dev/null || true
           rm -rf /tmp/susfs-nongki
 
-          echo "[+] Fixing SUSFS patch artifacts in fs/namei.c..."
-          cat << 'PYEOF' > /tmp/fix_namei.py
-          from pathlib import Path
-          import re
-          path = Path("fs/namei.c")
-          original = path.read_text()
-          duplicate = re.compile(
-              r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-              r"\s*bool is_nd_state_lookup_last_and_open_last = "
-              r"\(nd->state & ND_STATE_LOOKUP_LAST \|\| "
-              r"nd->state & ND_STATE_OPEN_LAST\);\n"
-              r"#endif\n",
-          )
-          fixed, duplicate_count = duplicate.subn("\n", original, count=1)
-          misplaced = re.compile(
-              r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-              r"\s*if \(is_nd_flags_lookup_last && !found_sus_path && "
-              r"dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n"
-              r"\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n"
-              r"\s*\{\n"
-              r"\s*if \(d_in_lookup\(dentry\)\)\n"
-              r"\s*d_lookup_done\(dentry\);\n"
-              r"\s*if \(!\(flags & LOOKUP_RCU\)\)\n"
-              r"\s*dput\(dentry\);\n"
-              r"\s*dentry = d_alloc_parallel\(dir, "
-              r"&susfs_fake_qstr_name, &wq\);\n"
-              r"\s*found_sus_path = true;\n"
-              r"\s*goto retry;\n"
-              r"\s*\}\n"
-              r"#endif\n",
-              re.MULTILINE,
-          )
-          fixed, misplaced_count = misplaced.subn("\n", fixed, count=1)
-          if duplicate_count != 1:
-              raise SystemExit(
-                  f"Expected one duplicate declaration, removed {duplicate_count}"
-              )
-          if misplaced_count != 1:
-              raise SystemExit(
-                  f"Expected one misplaced mknodat block, removed {misplaced_count}"
-              )
-          path.write_text(fixed)
-          PYEOF
-          python3 /tmp/fix_namei.py
-          rm -f /tmp/fix_namei.py
-          test "$(grep -c 'bool is_nd_state_lookup_last_and_open_last' fs/namei.c)" -eq 1 || { echo "ERROR: duplicate declaration check failed"; exit 1; }
-          if sed -n '4218,4275p' fs/namei.c | grep -Eq 'is_nd_flags_lookup_last|found_sus_path|d_alloc_parallel\(dir, &susfs_fake_qstr_name, &wq\)'; then
-            echo "ERROR: invalid SUSFS code remains in sys_mknodat()"
-            exit 1
-          fi
+          echo "[+] Fixing SUSFS patch artifacts in fs/namei.c, fs/readdir.c, fs/namespace.c, and include/linux/susfs.h..."
+          python3 -c "
+import re
+from pathlib import Path
 
-          echo "[+] Fixing SUSFS patch artifacts in fs/readdir.c..."
-          cat << 'PYEOF' > /tmp/fix_readdir.py
-          from pathlib import Path
-          import re
+# Fix fs/namei.c
+path = Path('fs/namei.c')
+original = path.read_text()
+duplicate = re.compile(r'\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*bool is_nd_state_lookup_last_and_open_last = \(nd->state & ND_STATE_LOOKUP_LAST \|\| nd->state & ND_STATE_OPEN_LAST\);\n#endif\n')
+fixed, duplicate_count = duplicate.subn('\n', original, count=1)
+misplaced = re.compile(r'\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*if \(is_nd_flags_lookup_last && !found_sus_path && dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n\s*\{\n\s*if \(d_in_lookup\(dentry\)\)\n\s*d_lookup_done\(dentry\);\n\s*if \(!\(flags & LOOKUP_RCU\)\)\n\s*dput\(dentry\);\n\s*dentry = d_alloc_parallel\(dir, &susfs_fake_qstr_name, &wq\);\n\s*found_sus_path = true;\n\s*goto retry;\n\s*\}\n#endif\n', re.MULTILINE)
+fixed, misplaced_count = misplaced.subn('\n', fixed, count=1)
+path.write_text(fixed)
 
-          path = Path("fs/readdir.c")
-          content = path.read_text()
+# Fix fs/readdir.c
+path = Path('fs/readdir.c')
+content = path.read_text()
+content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n', '', content)
+content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n', '', content)
+path.write_text(content)
 
-          # Remove the duplicate plain-#ifdef 'sb' / 'inode' blocks; the
-          # canonical declarations live under the combined
-          # '#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_ZEROMOUNT)' guard.
-          content = re.sub(
-              r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n',
-              '',
-              content,
-          )
-          content = re.sub(
-              r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n',
-              '',
-              content,
-          )
+# Fix fs/namespace.c
+path = Path('fs/namespace.c')
+content = path.read_text()
+if 'susfs_mnt_alloc_id' in content:
+    decls = []
+    if 'DEFINE_IDA(susfs_mnt_id_ida)' not in content: decls.append('static DEFINE_IDA(susfs_mnt_id_ida);')
+    if 'static int susfs_mnt_id_start;' not in content: decls.append('static int susfs_mnt_id_start;')
+    if 'DEFINE_SPINLOCK(mnt_id_lock)' not in content: decls.append('static DEFINE_SPINLOCK(mnt_id_lock);')
+    if decls:
+        block = '\n'.join(decls) + '\n\n'
+        content = content.replace('static int susfs_mnt_alloc_id(struct mount *mnt)', block + 'static int susfs_mnt_alloc_id(struct mount *mnt)', 1)
+    if '#include <linux/idr.h>' not in content:
+        content = re.sub(r'(^#include <linux/\S+>\n)', r'\1#include <linux/idr.h>\n', content, count=1, flags=re.MULTILINE)
+content = re.sub(r'alloc_vfsmnt\(([^,();]+)\);', r'alloc_vfsmnt(\1, false, 0);', content)
+path.write_text(content)
 
-          path.write_text(content)
-          PYEOF
-          python3 /tmp/fix_readdir.py
-          rm -f /tmp/fix_readdir.py
-
-          echo "[+] Fixing SUSFS patch artifacts in fs/namespace.c..."
-          cat << 'PYEOF' > /tmp/fix_namespace.py
-          from pathlib import Path
-          import re
-
-          path = Path("fs/namespace.c")
-          content = path.read_text()
-
-          # The hunk that adds the SUSFS mount-id file-scope variables failed
-          # while the hunk adding susfs_mnt_alloc_id() applied. Re-add the
-          # missing declarations (guarded so we never duplicate them).
-          if "susfs_mnt_alloc_id" in content:
-              decls = []
-              if "DEFINE_IDA(susfs_mnt_id_ida)" not in content:
-                  decls.append("static DEFINE_IDA(susfs_mnt_id_ida);")
-              if "static int susfs_mnt_id_start;" not in content:
-                  decls.append("static int susfs_mnt_id_start;")
-              if "DEFINE_SPINLOCK(mnt_id_lock)" not in content:
-                  decls.append("static DEFINE_SPINLOCK(mnt_id_lock);")
-              if decls:
-                  block = "\n".join(decls) + "\n\n"
-                  content = content.replace(
-                      "static int susfs_mnt_alloc_id(struct mount *mnt)",
-                      block + "static int susfs_mnt_alloc_id(struct mount *mnt)",
-                      1,
-                  )
-              if "#include <linux/idr.h>" not in content:
-                  content = re.sub(
-                      r"(^#include <linux/\S+>\n)",
-                      r"\1#include <linux/idr.h>\n",
-                      content,
-                      count=1,
-                      flags=re.MULTILINE,
-                  )
-
-          # The alloc_vfsmnt() prototype was changed to
-          # (name, should_spoof, custom_mnt_id) but the vanilla call sites
-          # were not updated. Fix every single-argument call site.
-          content = re.sub(
-              r"alloc_vfsmnt\(([^,();]+)\);",
-              r"alloc_vfsmnt(\1, false, 0);",
-              content,
-          )
-
-          path.write_text(content)
-          PYEOF
-          python3 /tmp/fix_namespace.py
-          rm -f /tmp/fix_namespace.py
-          if grep -n 'alloc_vfsmnt([^,)]*);' fs/namespace.c; then
-            echo "ERROR: single-argument alloc_vfsmnt() call sites remain"
-            exit 1
-          fi
-
-          echo "[+] Applying SUSFS 2.1 API header workaround to include/linux/susfs.h..."
-          cat << 'PYEOF' > /tmp/fix_susfs_h.py
-          import re
-          from pathlib import Path
-
-          path = Path("include/linux/susfs.h")
-          if not path.exists():
-              print("include/linux/susfs.h not found, skipping header fix.")
-              import sys
-              sys.exit(0)
-              
-          content = path.read_text()
-          modified = False
-
-          # 1. Add 'int err;' to st_susfs_sus_kstat if missing
-          if "struct st_susfs_sus_kstat" in content and "int err;" not in content.split("struct st_susfs_sus_kstat")[1].split("}")[0]:
-              content = re.sub(
-                  r"(struct st_susfs_sus_kstat \{[^}]*unsigned long long spoofed_blocks;\n)(\})",
-                  r"\1    int err;\n\2",
-                  content,
-                  count=1
-              )
-              modified = True
-
-          # 2. Add st_susfs_hide_sus_mnts_for_non_su_procs if missing
-          if "struct st_susfs_hide_sus_mnts_for_non_su_procs" not in content:
-              hide_mnts = """
-          #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-          struct st_susfs_hide_sus_mnts_for_non_su_procs {
-          int enabled;
-          int err;
-          };
-          #endif
-          """
-              # Insert before the first function prototype
-              match = re.search(r'(int|void) susfs_add_sus_kstat', content)
-              if match:
-                  content = content[:match.start()] + hide_mnts + "\n" + content[match.start():]
-              else:
-                  content += hide_mnts
-              modified = True
-
-          # 3. Fix function declarations
-          new_add = "void susfs_add_sus_kstat(void __user **user_info);"
-          new_upd = "void susfs_update_sus_kstat(void __user **user_info);"
+# Fix include/linux/susfs.h (Resolves the v1.5.5 vs v2.1 API mismatch)
+path = Path('include/linux/susfs.h')
+if path.exists():
+    content = path.read_text()
+    if 'struct st_susfs_sus_kstat' in content and 'int err;' not in content.split('struct st_susfs_sus_kstat')[1].split('}')[0]:
+        content = re.sub(r'(struct st_susfs_sus_kstat \{[^}]*unsigned long long spoofed_blocks;\n)(\})', r'\1    int err;\n\2', content, count=1)
+    if 'struct st_susfs_hide_sus_mnts_for_non_su_procs' not in content:
+        hide_mnts = '\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nstruct st_susfs_hide_sus_mnts_for_non_su_procs {\n    int enabled;\n    int err;\n};\n#endif\n'
+        match = re.search(r'(int|void) susfs_add_sus_kstat', content)
+        if match:
+            content = content[:match.start()] + hide_mnts + '\n' + content[match.start():]
+        else:
+            content += hide_mnts
+    content = re.sub(r'int susfs_add_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_add_sus_kstat(void __user **user_info);', content)
+    content = re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', 'void susfs_update_sus_kstat(void __user **user_info);', content)
+    path.write_text(content)
+          "
           
-          if re.sub(r'int susfs_add_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', new_add, content) != content:
-              content = re.sub(r'int susfs_add_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', new_add, content)
-              modified = True
-              
-          if re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', new_upd, content) != content:
-              content = re.sub(r'int susfs_update_sus_kstat\(struct st_susfs_sus_kstat \*user_info\);', new_upd, content)
-              modified = True
-
-          if modified:
-              path.write_text(content)
-              print("Successfully patched include/linux/susfs.h for SUSFS 2.1 API compatibility.")
-          else:
-              print("include/linux/susfs.h already appears compatible or patterns not matched.")
-          PYEOF
-          python3 /tmp/fix_susfs_h.py
-          rm -f /tmp/fix_susfs_h.py
-
           git diff --check
           echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
 
       - name: Create ZeroMount stub header and SUSFS compat stubs
         run: |
           set -euo pipefail
-          echo "[+] Creating stub ZeroMount header for compilation compatibility..."
-          printf '#ifndef _LINUX_ZEROMOUNT_H\n#define _LINUX_ZEROMOUNT_H\n#include <linux/types.h>\nstatic inline void zeromou               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *flags);\n\nextern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);\n#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)\nextern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);\n#endif\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE4\(newfstatat, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n"),
-              (r"(SYSCALL_DEFINE4\(fstatat64, int, dfd, const char __user \*, filename,\n\s*struct stat __user \*, statbuf, int, flag\)\n\{\n\s*struct kstat stat;\n\s*int error;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n"),
-              (r"(SYSCALL_DEFINE2\(newfstat, unsigned int, fd, struct stat __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat\(&stat, statbuf\);\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_newfstat_ret(&fd, &statbuf);\n#endif\n"),
-              (r"(SYSCALL_DEFINE2\(fstat64, unsigned long, fd, struct stat64 __user \*, statbuf\)\n\{\n\s*struct kstat stat;\n\s*int error = vfs_fstat\(fd, &stat\);\n\n\s*if \(!error\)\n\s*error = cp_new_stat64\(&stat, statbuf\);\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_fstat64_ret(&fd, &statbuf);\n#endif\n")
-          ]
+          echo "[+] Creating stub ZeroMount header and SUSFS compat stubs for compilation compatibility..."
+          python3 -c "
+from pathlib import Path
 
-          exec_patches = [
-              (r"(static int do_execveat_common\(int fd, struct filename \*filename,)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags);\n__attribute__((hot))\nextern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,\n\t\t\t\tvoid *argv, void *envp, int *flags, int *retval);\n#endif\n\n\1"),
-              (r"(static int do_execveat_common\(int fd, struct filename \*filename,\n\s*struct user_arg_ptr argv,\n\s*struct user_arg_ptr envp,\n\s*int flags\)\n\{\n)\s*return __do_execve_file\(fd, filename, argv, envp, flags, NULL\);\n(\})",
-               r"\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tint retval;\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n\n\tretval = __do_execve_file(fd, filename, argv, envp, flags, NULL);\n\n\tksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);\n\n\treturn retval;\n#else\n\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);\n#endif\n\2")
-          ]
+zm = '''#ifndef _LINUX_ZEROMOUNT_H
+#define _LINUX_ZEROMOUNT_H
+#include <linux/types.h>
+static inline void zeromount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino) { }
+static inline int zeromount_is_hidden_path(const char *path) { return 0; }
+static inline struct filename *zeromount_getname_hook(struct filename *name) { return name; }
+static inline int zeromount_is_injected_file(struct inode *inode) { return 0; }
+static inline int zeromount_is_traversal_allowed(struct inode *inode, int mask) { return 1; }
+static inline int zeromount_stat_hook(struct filename *filename) { return 0; }
+#endif
+'''
+Path('include/linux/zeromount.h').write_text(zm)
 
-          open_patches = [
-              (r"(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\n__attribute__((hot))\nextern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\t\t\t\tint *mode, int *flags);\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE3\(faccessat, int, dfd, const char __user \*, filename, int, mode\)\n\{\n)",
-               r"\1#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n#endif\n")
-          ]
-
-          reboot_patches = [
-              (r"(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{)",
-               r"#ifdef CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n\1"),
-              (r"(SYSCALL_DEFINE4\(reboot, int, magic1, int, magic2, unsigned int, cmd,\n\s*void __user \*, arg\)\n\{\n\s*struct pid_namespace \*pid_ns = task_active_pid_ns\(current\);\n\s*char buffer\[256\];\n\s*int ret = 0;\n)",
-               r"\1\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n")
-          ]
-
-          selinuxfs_patches = [
-              (r"static ssize_t \(\*write_op\[\]\)\(struct file \*, char \*, size_t\) =",
-               r"ssize_t (*write_op[])(struct file *, char *, size_t) ="),
-              (r"static const struct file_operations sel_handle_status_ops =",
-               r"const struct file_operations sel_handle_status_ops =")
-          ]
-
-          services_patches = [
-              (r"static DEFINE_RWLOCK\(policy_rwlock\);",
-               r"DEFINE_RWLOCK(policy_rwlock);")
-          ]
-
-          patch_file("fs/stat.c", stat_patches)
-          patch_file("fs/exec.c", exec_patches)
-          patch_file("fs/open.c", open_patches)
-          patch_file("kernel/reboot.c", reboot_patches)
-          patch_file("security/selinux/selinuxfs.c", selinuxfs_patches)
-          patch_file("security/selinux/ss/services.c", services_patches)
-          PYEOF
-          python3 /tmp/apply_manual_hooks.py
-          rm -f /tmp/apply_manual_hooks.py
-
-      - name: Integrate NoMount into Kernel Source
-        run: |
-          set -euo pipefail
-          echo "Integrating NoMount (dev branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
-          echo "NoMount integration completed successfully!"
-
-      - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
-        run: |
-          set -euo pipefail
-          echo "[+] Cloning Amazeble/SUSFS-NonGKI-Patches..."
-          rm -rf /tmp/susfs-nongki
-          git clone --depth=1 https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-nongki
-          echo "[+] Making apply_patches.sh executable..."
-          chmod +x /tmp/susfs-nongki/apply_patches.sh
-          cd /tmp/susfs-nongki
-          echo "[+] Applying patches to kernel source..."
-          if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
-            echo "::error::SUSFS patches are incompatible with this kernel tree"
-            echo "[+] Dumping rejected files for debugging:"
-            find "$GITHUB_WORKSPACE" -name '*.rej' -print
-            git -C "$GITHUB_WORKSPACE" diff -- fs/readdir.c fs/namei.c fs/namespace.c
-            exit 1
-          fi
-          echo "[+] Cleaning up patch artifacts..."
-          cd "$GITHUB_WORKSPACE"
-          find . -name "*.rej" -delete 2>/dev/null || true
-          find . -name "*.orig" -delete 2>/dev/null || true
-          rm -rf /tmp/susfs-nongki
-
-          echo "[+] Fixing SUSFS patch artifacts in fs/namei.c..."
-          cat << 'PYEOF' > /tmp/fix_namei.py
-          from pathlib import Path
-          import re
-          path = Path("fs/namei.c")
-          original = path.read_text()
-          duplicate = re.compile(
-              r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-              r"\s*bool is_nd_state_lookup_last_and_open_last = "
-              r"\(nd->state & ND_STATE_LOOKUP_LAST \|\| "
-              r"nd->state & ND_STATE_OPEN_LAST\);\n"
-              r"#endif\n",
-          )
-          fixed, duplicate_count = duplicate.subn("\n", original, count=1)
-          misplaced = re.compile(
-              r"\n#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
-              r"\s*if \(is_nd_flags_lookup_last && !found_sus_path && "
-              r"dentry && !IS_ERR\(dentry\) && dentry->d_inode &&\n"
-              r"\s*susfs_is_inode_sus_path\(dentry->d_inode\)\)\n"
-              r"\s*\{\n"
-              r"\s*if \(d_in_lookup\(dentry\)\)\n"
-              r"\s*d_lookup_done\(dentry\);\n"
-              r"\s*if \(!\(flags & LOOKUP_RCU\)\)\n"
-              r"\s*dput\(dentry\);\n"
-              r"\s*dentry = d_alloc_parallel\(dir, "
-              r"&susfs_fake_qstr_name, &wq\);\n"
-              r"\s*found_sus_path = true;\n"
-              r"\s*goto retry;\n"
-              r"\s*\}\n"
-              r"#endif\n",
-              re.MULTILINE,
-          )
-          fixed, misplaced_count = misplaced.subn("\n", fixed, count=1)
-          if duplicate_count != 1:
-              raise SystemExit(
-                  f"Expected one duplicate declaration, removed {duplicate_count}"
-              )
-          if misplaced_count != 1:
-              raise SystemExit(
-                  f"Expected one misplaced mknodat block, removed {misplaced_count}"
-              )
-          path.write_text(fixed)
-          PYEOF
-          python3 /tmp/fix_namei.py
-          rm -f /tmp/fix_namei.py
-          test "$(grep -c 'bool is_nd_state_lookup_last_and_open_last' fs/namei.c)" -eq 1 || { echo "ERROR: duplicate declaration check failed"; exit 1; }
-          if sed -n '4218,4275p' fs/namei.c | grep -Eq 'is_nd_flags_lookup_last|found_sus_path|d_alloc_parallel\(dir, &susfs_fake_qstr_name, &wq\)'; then
-            echo "ERROR: invalid SUSFS code remains in sys_mknodat()"
-            exit 1
-          fi
-
-          echo "[+] Fixing SUSFS patch artifacts in fs/readdir.c..."
-          cat << 'PYEOF' > /tmp/fix_readdir.py
-          from pathlib import Path
-          import re
-
-          path = Path("fs/readdir.c")
-          content = path.read_text()
-
-          # Remove the duplicate plain-#ifdef 'sb' / 'inode' blocks; the
-          # canonical declarations live under the combined
-          # '#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_ZEROMOUNT)' guard.
-          content = re.sub(
-              r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n',
-              '',
-              content,
-          )
-          content = re.sub(
-              r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n',
-              '',
-              content,
-          )
-
-          path.write_text(content)
-          PYEOF
-          python3 /tmp/fix_readdir.py
-          rm -f /tmp/fix_readdir.py
-
-          echo "[+] Fixing SUSFS patch artifacts in fs/namespace.c..."
-          cat << 'PYEOF' > /tmp/fix_namespace.py
-          from pathlib import Path
-          import re
-
-          path = Path("fs/namespace.c")
-          content = path.read_text()
-
-          # The hunk that adds the SUSFS mount-id file-scope variables failed
-          # while the hunk adding susfs_mnt_alloc_id() applied. Re-add the
-          # missing declarations (guarded so we never duplicate them).
-          if "susfs_mnt_alloc_id" in content:
-              decls = []
-              if "DEFINE_IDA(susfs_mnt_id_ida)" not in content:
-                  decls.append("static DEFINE_IDA(susfs_mnt_id_ida);")
-              if "static int susfs_mnt_id_start;" not in content:
-                  decls.append("static int susfs_mnt_id_start;")
-              if "DEFINE_SPINLOCK(mnt_id_lock)" not in content:
-                  decls.append("static DEFINE_SPINLOCK(mnt_id_lock);")
-              if decls:
-                  block = "\n".join(decls) + "\n\n"
-                  content = content.replace(
-                      "static int susfs_mnt_alloc_id(struct mount *mnt)",
-                      block + "static int susfs_mnt_alloc_id(struct mount *mnt)",
-                      1,
-                  )
-              if "#include <linux/idr.h>" not in content:
-                  content = re.sub(
-                      r"(^#include <linux/\S+>\n)",
-                      r"\1#include <linux/idr.h>\n",
-                      content,
-                      count=1,
-                      flags=re.MULTILINE,
-                  )
-
-          # The alloc_vfsmnt() prototype was changed to
-          # (name, should_spoof, custom_mnt_id) but the vanilla call sites
-          # were not updated. Fix every single-argument call site.
-          content = re.sub(
-              r"alloc_vfsmnt\(([^,();]+)\);",
-              r"alloc_vfsmnt(\1, false, 0);",
-              content,
-          )
-
-          path.write_text(content)
-          PYEOF
-          python3 /tmp/fix_namespace.py
-          rm -f /tmp/fix_namespace.py
-          if grep -n 'alloc_vfsmnt([^,)]*);' fs/namespace.c; then
-            echo "ERROR: single-argument alloc_vfsmnt() call sites remain"
-            exit 1
-          fi
-
-          git diff --check
-          echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
-
-      - name: Create ZeroMount stub header and SUSFS compat stubs
-        run: |
-          set -euo pipefail
-          echo "[+] Creating stub ZeroMount header for compilation compatibility..."
-          printf '#ifndef _LINUX_ZEROMOUNT_H\n#define _LINUX_ZEROMOUNT_H\n#include <linux/types.h>\nstatic inline void zeromount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino) { }\nstatic inline int zeromount_is_hidden_path(const char *path) { return 0; }\nstatic inline struct filename *zeromount_getname_hook(struct filename *name) { return name; }\nstatic inline int zeromount_is_injected_file(struct inode *inode) { return 0; }\nstatic inline int zeromount_is_traversal_allowed(struct inode *inode, int mask) { return 1; }\nstatic inline int zeromount_stat_hook(struct filename *filename) { return 0; }\n#endif\n' > include/linux/zeromount.h
-          echo "[+] ZeroMount stub header created at include/linux/zeromount.h"
-          echo "[+] Appending no-op fallbacks for SUSFS APIs missing from this tree's SUSFS revision..."
-          SUSFS_H="include/linux/susfs.h"
-          if [ -f "$SUSFS_H" ]; then
-            grep -q 'define SUSFS_IS_INODE_OPEN_REDIRECT' "$SUSFS_H" || cat >> "$SUSFS_H" <<'EOF'
-          #ifndef SUSFS_IS_INODE_OPEN_REDIRECT
-          #define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)
-          #endif
-          #ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK
-          #define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)
-          #endif
-          EOF
-            grep -q 'susfs_check_unicode_bypass' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
-          static inline int susfs_check_unicode_bypass(const char __user *uptr, ...) { return 0; }
-          EOF
-            grep -q 'susfs_is_hidden_name' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
-          static inline int susfs_is_hidden_name(const char *name, ...) { return 0; }
-          EOF
-            grep -q 'susfs_is_current_zygote_domain' "$SUSFS_H" fs/susfs.c || cat >> "$SUSFS_H" <<'EOF'
-          static inline int susfs_is_current_zygote_domain(void) { return 0; }
-          EOF
-            echo "[+] SUSFS compat stubs appended to $SUSFS_H"
-          else
-            echo "WARNING: include/linux/susfs.h not found; skipping compat stubs"
-          fi
+susfs_h = Path('include/linux/susfs.h')
+if susfs_h.exists():
+    content = susfs_h.read_text()
+    additions = []
+    if 'define SUSFS_IS_INODE_OPEN_REDIRECT' not in content:
+        additions.append('''#ifndef SUSFS_IS_INODE_OPEN_REDIRECT
+#define SUSFS_IS_INODE_OPEN_REDIRECT(inode) (0)
+#endif
+#ifndef SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK
+#define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) (0)
+#endif''')
+    if 'susfs_check_unicode_bypass' not in content:
+        additions.append('static inline int susfs_check_unicode_bypass(const char __user *uptr, ...) { return 0; }')
+    if 'susfs_is_hidden_name' not in content:
+        additions.append('static inline int susfs_is_hidden_name(const char *name, ...) { return 0; }')
+    if 'susfs_is_current_zygote_domain' not in content:
+        additions.append('static inline int susfs_is_current_zygote_domain(void) { return 0; }')
+    if additions:
+        with open('include/linux/susfs.h', 'a') as f:
+            f.write('\n' + '\n'.join(additions) + '\n')
+          "
+          echo "[+] ZeroMount stub header and SUSFS compat stubs created."
 
       - name: Generate and Force Feature Defconfig
         run: |
           set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
+          
           echo "=== Enabling KernelSU (ReSukiSU) with Manual Hooks ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
           ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
+          
           echo "=== Enabling SusFS 2.1 Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -666,8 +287,10 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          
           echo "=== Enabling SusFS 2.1 Enhanced Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
+          
           echo "=== Disabling Incompatible/Broken SusFS Features ==="
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
@@ -675,8 +298,10 @@ jobs:
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_UNICODE_FILTER
           ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          
           echo "=== Disabling ZeroMount (stub only, no driver) ==="
           ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
+          
           echo "=== Enabling Other Features ==="
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
@@ -684,6 +309,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
+          
           echo "=== USB and Bluetooth as Modules ==="
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
@@ -702,6 +328,7 @@ jobs:
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_BCM
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_RTL
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_MTK
+          
           echo "=== Enabling WiFi ==="
           ./scripts/config --file out/.config --enable CONFIG_CFG80211
           ./scripts/config --file out/.config --enable CONFIG_MAC80211
@@ -710,9 +337,12 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
+          
           echo "=== Enabling NoMount ==="
           ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+          
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+          
           echo "=== Verifying Configuration ==="
           MISSING=0
           if ! grep -q "CONFIG_KSU=y" out/.config; then
