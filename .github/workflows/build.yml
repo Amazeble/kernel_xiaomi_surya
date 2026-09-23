@@ -317,8 +317,9 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS
           ./scripts/config --file out/.config --module CONFIG_USB_F_FS
 
-          echo "=== Finalizing config (non-interactive) ==="
+          echo "=== Finalize config (MUST be the LAST command of this step) ==="
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -E "CONFIG_USB_CONFIGFS_F_FS|CONFIG_USB_F_FS" out/.config || true
 
       - name: Build Kernel
         run: |
