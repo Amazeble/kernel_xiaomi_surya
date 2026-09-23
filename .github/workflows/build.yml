@@ -510,6 +510,28 @@ jobs:
             echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
             sed -i '/#define _UAPI_LINUX_STAT_H/a \\n#define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U' include/uapi/linux/stat.h
           fi
+          
+      - name: Fix SuSFS Compilation Errors
+        run: |
+          cd kernel_xiaomi_surya || true # Navigate to kernel directory if needed
+          
+          # 1. Inject the missing linux/susfs.h header into fs/stat.c
+          if ! grep -q "linux/susfs.h" fs/stat.c; then
+            echo "Injecting <linux/susfs.h> into fs/stat.c..."
+            sed -i '1,/#include/{/#include/a #include <linux/susfs.h>}' fs/stat.c
+          fi
+
+          # 2. Inject missing STATX definitions into include/uapi/linux/stat.h
+          if ! grep -q "STATX_SUS_KSTAT" include/uapi/linux/stat.h; then
+            echo "Adding STATX_SUS definitions to include/uapi/linux/stat.h..."
+            sed -i '/#define _UAPI_LINUX_STAT_H/a \\n#define STATX_SUS_KSTAT        0x00008000U\n#define STATX_SUS_KSTAT_FUSE   0x00010000U' include/uapi/linux/stat.h
+          fi
+
+          # 3. Inject the missing linux/susfs.h header into mm/memory.c
+          if ! grep -q "linux/susfs.h" mm/memory.c; then
+            echo "Injecting <linux/susfs.h> into mm/memory.c..."
+            sed -i '1,/#include/{/#include/a #include <linux/susfs.h>}' mm/memory.c
+          fi
 
       - name: Build Kernel
         run: |
