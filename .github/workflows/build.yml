@@ -314,7 +314,7 @@ jobs:
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
           ./scripts/config --file out/.config --module CONFIG_USB_LIBCOMPOSITE
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS   <-- FIXED
+          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS
           ./scripts/config --file out/.config --module CONFIG_USB_F_FS
 
           echo "=== Finalizing config (non-interactive) ==="
