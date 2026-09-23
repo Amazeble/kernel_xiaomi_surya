@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync dwarves patch
-
+          
       - name: Setup AOSP Clang Toolchain
         run: |
           set -euo pipefail
@@ -34,7 +34,7 @@ jobs:
             git clone --depth=1 -b 17 "${GITLAB_HOST}${TC_PATH}" "$TC_DIR"
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
-
+          
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
           set -euo pipefail
@@ -62,7 +62,7 @@ jobs:
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
-
+            
       - name: Integrate KernelSU (ReSukiSU) into drivers/kernelsu
         run: |
           set -euo pipefail
@@ -82,33 +82,41 @@ jobs:
             exit 1
           fi
           rm -f setup_kernelsu.sh
-
+          
       - name: Integrate NoMount into Kernel Source
         run: |
           set -euo pipefail
           echo "Integrating NoMount (dev branch) into kernel source..."
           curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
           echo "NoMount integration completed successfully!"
-
+          
       - name: Apply SUSFS 2.1 + ZeroMount patches (Amazeble)
         run: |
           set -euo pipefail
           echo "[+] Cloning Amazeble/SUSFS-NonGKI-Patches..."
-          git clone https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-nongki
+          rm -rf /tmp/susfs-nongki
+          git clone --depth=1 https://github.com/Amazeble/SUSFS-NonGKI-Patches /tmp/susfs-nongki
+          
           echo "[+] Making apply_patches.sh executable..."
           chmod +x /tmp/susfs-nongki/apply_patches.sh
           cd /tmp/susfs-nongki
+          
           echo "[+] Applying patches to kernel source..." 
-          set +e
-          echo "y" | ./apply_patches.sh "$GITHUB_WORKSPACE"
-          PATCH_STATUS=$?
-          set -e
-          echo "Patch helper exit status: $PATCH_STATUS"
+          # CRITICAL: Fail immediately if patches do not apply cleanly
+          if ! printf 'y\n' | ./apply_patches.sh "$GITHUB_WORKSPACE"; then
+            echo "::error::SUSFS patches are incompatible with this kernel tree"
+            echo "[+] Dumping rejected files for debugging:"
+            find "$GITHUB_WORKSPACE" -name '*.rej' -print
+            git -C "$GITHUB_WORKSPACE" diff -- fs/readdir.c fs/namei.c
+            exit 1
+          fi
+          
           echo "[+] Cleaning up patch artifacts..."
           cd "$GITHUB_WORKSPACE"
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           rm -rf /tmp/susfs-nongki
+          
           echo "[+] Fixing SUSFS patch artifacts in fs/namei.c..."
           cat << 'PYEOF' | sed 's/^          //' > /tmp/fix_namei.py
           from pathlib import Path
@@ -159,28 +167,54 @@ jobs:
             echo "ERROR: invalid SUSFS code remains in sys_mknodat()"
             exit 1
           fi
+
+          echo "[+] Fixing SUSFS patch artifacts in fs/readdir.c..."
+          cat << 'PYEOF' | sed 's/^          //' > /tmp/fix_readdir.py
+          from pathlib import Path
+          import re
+          
+          path = Path("fs/readdir.c")
+          content = path.read_text()
+          
+          # Remove duplicate 'struct super_block *sb;' blocks
+          content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct super_block \*sb;\n#endif\n', '', content)
+          
+          # Remove duplicate 'struct inode *inode;' blocks
+          content = re.sub(r'#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n\s*struct inode \*inode;\n#endif\n', '', content)
+          
+          # Comment out lines using missing APIs to prevent compilation errors
+          content = re.sub(r'^(\s*).*TASK_STRUCT_NON_ROOT_USER_APP_PROC.*$', r'\1// &', content, flags=re.MULTILINE)
+          content = re.sub(r'^(\s*).*susfs_should_hide_dirent.*$', r'\1// &', content, flags=re.MULTILINE)
+          content = re.sub(r'^(\s*).*susfs_sus_ino_for_filldir64.*$', r'\1// &', content, flags=re.MULTILINE)
+          
+          path.write_text(content)
+          PYEOF
+          python3 /tmp/fix_readdir.py
+          rm -f /tmp/fix_readdir.py
+
           git diff --check
           echo "[+] SUSFS 2.1 + ZeroMount patches applied and verified."
-
+          
       - name: Create ZeroMount Stub Header 
         run: |
           set -euo pipefail
           echo "[+] Creating stub ZeroMount header for compilation compatibility..."
           printf '#ifndef _LINUX_ZEROMOUNT_H\n#define _LINUX_ZEROMOUNT_H\n#include <linux/types.h>\nstatic inline void zeromount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino) { }\nstatic inline int zeromount_is_hidden_path(const char *path) { return 0; }\nstatic inline struct filename *zeromount_getname_hook(struct filename *name) { return name; }\nstatic inline int zeromount_is_injected_file(struct inode *inode) { return 0; }\nstatic inline int zeromount_is_traversal_allowed(struct inode *inode, int mask) { return 1; }\nstatic inline int zeromount_stat_hook(struct filename *filename) { return 0; }\n#endif\n' > include/linux/zeromount.h
           echo "[+] ZeroMount stub header created at include/linux/zeromount.h"
-
+          
       - name: Generate and Force Feature Defconfig
         run: |
           set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
+          
           echo "=== Enabling KernelSU (ReSukiSU) with Manual Hooks ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
           ./scripts/config --file out/.config --disable CONFIG_KSU_KPROBES_HOOK
+          
           echo "=== Enabling SusFS 2.1 Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
@@ -192,14 +226,22 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          
           echo "=== Enabling SusFS 2.1 Enhanced Features ==="
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT_REDIRECT
           ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_UNICODE_FILTER
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDDEN_NAME
-          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HARDENED
+          
+          echo "=== Disabling Incompatible/Broken SusFS Features ==="
+          # These features rely on missing APIs (TASK_STRUCT_NON_ROOT_USER_APP_PROC, etc.) 
+          # and cause duplicate declarations in fs/readdir.c when patches fail to apply cleanly.
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_PATH
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HIDDEN_NAME
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_HARDENED
+          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
+          
           echo "=== Disabling ZeroMount (stub only, no driver) ==="
           ./scripts/config --file out/.config --disable CONFIG_ZEROMOUNT
-          ./scripts/config --file out/.config --disable CONFIG_KSU_SUSFS_SUS_SU
+          
           echo "=== Enabling Other Features ==="
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
@@ -207,6 +249,7 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
+          
           echo "=== USB and Bluetooth as Modules ==="
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --module CONFIG_USB_CONFIGFS
@@ -225,6 +268,7 @@ jobs:
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_BCM
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_RTL
           ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_MTK
+          
           echo "=== Enabling WiFi ==="
           ./scripts/config --file out/.config --enable CONFIG_CFG80211
           ./scripts/config --file out/.config --enable CONFIG_MAC80211
@@ -233,9 +277,12 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
+          
           echo "=== Enabling NoMount ==="
           ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+          
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+          
           echo "=== Verifying Configuration ==="
           MISSING=0
           if ! grep -q "CONFIG_KSU=y" out/.config; then
@@ -257,7 +304,7 @@ jobs:
             exit 1
           fi
           echo "All dependencies verified successfully."
-
+          
       - name: Build Kernel
         run: |
           set -euo pipefail
@@ -267,7 +314,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
             LLVM=1 LLVM_IAS=1 \
             Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
-
+            
       - name: Package AnyKernel3 ZIP
         run: |
           set -euo pipefail
@@ -315,7 +362,7 @@ jobs:
             echo "Compilation failed!"
             exit 1
           fi
-
+          
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
