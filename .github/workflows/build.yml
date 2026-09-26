@@ -66,13 +66,7 @@ jobs:
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
-      # --- NoMount Integration Step ---
-      - name: Integrate NoMount into Kernel Source
-        run: |
-          set -euo pipefail
-          echo "Integrating NoMount (dev branch) into kernel source..."
-          curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
-          echo "NoMount integration completed successfully!"
+            
       # --- KernelSU Next Integration Step ---
       - name: Integrate KernelSU Next (Legacy) into Kernel Source
         run: |
