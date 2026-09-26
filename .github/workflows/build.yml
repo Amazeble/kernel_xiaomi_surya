@@ -88,14 +88,10 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_TRACING
           ./scripts/config --file out/.config --enable CONFIG_FTRACE
           ./scripts/config --file out/.config --enable CONFIG_FTRACE_SYSCALLS
-          ./scripts/config --file out/.config --enable CONFIG_KPROBES
-          ./scripts/config --file out/.config --enable CONFIG_KRETPROBES
-          ./scripts/config --file out/.config --enable CONFIG_KPROBE_EVENTS
           
           # --- KernelSU Next: FORCE kprobe hooks, DISABLE manual hooks ---
           ./scripts/config --file out/.config --enable CONFIG_KSU
-          ./scripts/config --file out/.config --disable CONFIG_KSU_MANUAL_HOOK
-          ./scripts/config --file out/.config --enable CONFIG_KSU_KPROBES_HOOK
+          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
           
           # --- Other features ---
           ./scripts/config --file out/.config --enable CONFIG_KPM
@@ -126,24 +122,14 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
-          
-          # --- NoMount ---
-          ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+        
           
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           # --- STRICT VERIFICATION ---
           echo "=== Verifying KernelSU Next dependencies ==="
           MISSING=0
           
-          if ! grep -q "CONFIG_KPROBES=y" out/.config; then
-            echo "FATAL: CONFIG_KPROBES was dropped by olddefconfig!"
-            MISSING=1
-          fi
-          
-          if ! grep -q "CONFIG_KRETPROBES=y" out/.config; then
-            echo "FATAL: CONFIG_KRETPROBES was dropped by olddefconfig!"
-            MISSING=1
-          fi
+  
           
           if ! grep -q "CONFIG_KPROBE_EVENTS=y" out/.config; then
             echo "FATAL: CONFIG_KPROBE_EVENTS was dropped by olddefconfig!"
