@@ -1,0 +1,1 @@
+cmd_drivers/block/zram/built-in.a :=   rm -f drivers/block/zram/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/block/zram/built-in.a drivers/block/zram/zram.o 

@@ -1,0 +1,1 @@
+cmd_drivers/char/hw_random/built-in.a :=   rm -f drivers/char/hw_random/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/char/hw_random/built-in.a drivers/char/hw_random/rng-core.o drivers/char/hw_random/msm_rng.o drivers/char/hw_random/cavium-rng.o drivers/char/hw_random/cavium-rng-vf.o 

@@ -1,0 +1,1 @@
+cmd_drivers/input/fingerprint/built-in.a :=   rm -f drivers/input/fingerprint/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/input/fingerprint/built-in.a drivers/input/fingerprint/fpc1020_tee.o drivers/input/fingerprint/gf3208/built-in.a 

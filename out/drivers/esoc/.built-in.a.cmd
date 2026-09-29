@@ -1,0 +1,1 @@
+cmd_drivers/esoc/built-in.a :=   rm -f drivers/esoc/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/esoc/built-in.a drivers/esoc/esoc_bus.o drivers/esoc/esoc_dev.o drivers/esoc/esoc_client.o drivers/esoc/esoc-mdm-pon.o drivers/esoc/esoc-mdm-4x.o drivers/esoc/esoc-mdm-drv.o drivers/esoc/esoc-mdm-dbg-eng.o 

@@ -1,0 +1,1 @@
+cmd_security/integrity/built-in.a :=   rm -f security/integrity/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD security/integrity/built-in.a security/integrity/integrity.o 

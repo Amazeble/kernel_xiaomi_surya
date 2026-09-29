@@ -1,0 +1,1 @@
+cmd_drivers/extcon/built-in.a :=   rm -f drivers/extcon/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/extcon/built-in.a drivers/extcon/extcon-core.o drivers/extcon/extcon-usb-gpio.o 

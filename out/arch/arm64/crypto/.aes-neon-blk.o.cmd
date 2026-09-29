@@ -1,0 +1,1 @@
+cmd_arch/arm64/crypto/aes-neon-blk.o :=  rm -f arch/arm64/crypto/aes-neon-blk.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD arch/arm64/crypto/aes-neon-blk.o arch/arm64/crypto/aes-glue-neon.o arch/arm64/crypto/aes-neon.o 

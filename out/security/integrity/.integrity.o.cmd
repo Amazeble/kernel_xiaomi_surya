@@ -1,0 +1,1 @@
+cmd_security/integrity/integrity.o :=  rm -f security/integrity/integrity.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD security/integrity/integrity.o security/integrity/iint.o security/integrity/integrity_audit.o 

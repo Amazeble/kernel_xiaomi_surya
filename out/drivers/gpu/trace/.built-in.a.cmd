@@ -1,0 +1,1 @@
+cmd_drivers/gpu/trace/built-in.a :=   rm -f drivers/gpu/trace/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/gpu/trace/built-in.a drivers/gpu/trace/trace_gpu_mem.o 

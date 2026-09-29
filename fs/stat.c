@@ -22,17 +22,13 @@
 #include <linux/version.h>
 #endif
 
-#ifdef CONFIG_ZEROMOUNT
-#include <linux/zeromount.h>
-#endif
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
+
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
-extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode,
-						       struct kstat *stat, u32 result_mask);
-#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */
-
+extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 
 /**
  * generic_fillattr - Fill in the basic attributes from the inode struct
@@ -43,9 +39,23 @@ extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode,
  * found on the VFS inode structure.  This is the default if no getattr inode
  * operation is supplied.
  */
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern void susfs_sus_ino_for_generic_fillattr(unsigned long ino, struct kstat *stat);
+#endif
 
 void generic_fillattr(struct inode *inode, struct kstat *stat)
 {
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	if (likely(susfs_is_current_proc_umounted()) &&
+	    unlikely(test_bit(AS_FLAGS_SUS_KSTAT, &inode->i_state))) {
+		susfs_sus_ino_for_generic_fillattr(inode->i_ino, stat);
+		stat->mode = inode->i_mode;
+		stat->rdev = inode->i_rdev;
+		stat->uid = inode->i_uid;
+		stat->gid = inode->i_gid;
+		return;
+	}
+#endif
 	stat->dev = inode->i_sb->s_dev;
 	stat->ino = inode->i_ino;
 	stat->mode = inode->i_mode;
@@ -81,7 +91,7 @@ EXPORT_SYMBOL(generic_fillattr);
  * attributes to any user.  Any other code probably wants vfs_getattr.
  */
 int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
-		u32 request_mask, unsigned int query_flags)
+		      u32 request_mask, unsigned int query_flags)
 {
 	struct inode *inode = d_backing_inode(path->dentry);
 
@@ -89,19 +99,27 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	stat->result_mask |= STATX_BASIC_STATS;
 	request_mask &= STATX_ALL;
 	query_flags &= KSTAT_QUERY_FLAGS;
-
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 	if (susfs_is_current_app_uid()) {
 		bool is_fuse = false;
 		if (susfs_is_inode_sus_kstat(d_backing_inode(path->dentry), &is_fuse)) {
-			if (!is_fuse)
+			if (!is_fuse) {
+				// stat->mnt_id = real_mount(path->mnt)->mnt_id;
+				// only for 5.10 kernel
 				stat->result_mask |= STATX_SUS_KSTAT;
+			}
+			// stat->mnt_id = real_mount(path->mnt)->mnt_id;
+			// only for 5.10 kernel
 			stat->result_mask |= STATX_SUS_KSTAT_FUSE;
 		}
 	}
-	if (inode->i_op->getattr) {
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+
+	if (inode->i_op->getattr)
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	{
 		int err = inode->i_op->getattr(path, stat, request_mask,
-						     query_flags);
+					    query_flags);
 		if (!err) {
 			if (stat->result_mask & STATX_SUS_KSTAT) {
 				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT);
@@ -109,7 +127,7 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 			}
 			if (stat->result_mask & STATX_SUS_KSTAT_FUSE) {
 				susfs_sus_kstat_spoof_generic_fillattr(inode, stat, STATX_SUS_KSTAT_FUSE);
-				return err;
+			return err;
 			}
 		}
 		return err;
@@ -125,10 +143,10 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 		return 0;
 	}
 #else
-	if (inode->i_op->getattr)
 		return inode->i_op->getattr(path, stat, request_mask,
-						     query_flags);
-#endif /* CONFIG_KSU_SUSFS_SUS_KSTAT */
+					    query_flags);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+
 	generic_fillattr(inode, stat);
 	return 0;
 }
@@ -390,18 +408,16 @@ SYSCALL_DEFINE2(newstat, const char __user *, filename,
 	return cp_new_stat(&stat, statbuf);
 }
 
-SYSCALL_DEFINE2(newlstat, const char __user *, filename,
-		struct stat __user *, statbuf)
-{
-	struct kstat stat;
-	int error;
+#ifdef CONFIG_KSU_MANUAL_HOOK
+__attribute__((hot)) 
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+				int *flags);
 
-	error = vfs_lstat(filename, &stat);
-	if (error)
-		return error;
-
-	return cp_new_stat(&stat, statbuf);
-}
+extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr); // optional
+#endif
+#endif
 
 #if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
 extern __attribute__((hot, always_inline)) int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
@@ -727,11 +743,11 @@ COMPAT_SYSCALL_DEFINE2(newfstat, unsigned int, fd,
 /* Caller is here responsible for sufficient locking (ie. inode->i_lock) */
 void __inode_add_bytes(struct inode *inode, loff_t bytes)
 {
-	inode->i_blocks += bytes >> 9;
+	inode->i_blocks = bytes >> 9;
 	bytes &= 511;
-	inode->i_bytes += bytes;
+	inode->i_bytes = bytes;
 	if (inode->i_bytes >= 512) {
-		inode->i_blocks++;
+		inode->i_blocks;
 		inode->i_bytes -= 512;
 	}
 }
@@ -752,7 +768,7 @@ void __inode_sub_bytes(struct inode *inode, loff_t bytes)
 	bytes &= 511;
 	if (inode->i_bytes < bytes) {
 		inode->i_blocks--;
-		inode->i_bytes += 512;
+		inode->i_bytes = 512;
 	}
 	inode->i_bytes -= bytes;
 }

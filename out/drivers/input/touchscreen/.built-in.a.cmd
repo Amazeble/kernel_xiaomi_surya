@@ -1,0 +1,1 @@
+cmd_drivers/input/touchscreen/built-in.a :=   rm -f drivers/input/touchscreen/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/input/touchscreen/built-in.a drivers/input/touchscreen/of_touchscreen.o drivers/input/touchscreen/nt36xxx_spi/built-in.a drivers/input/touchscreen/tp_common.o 

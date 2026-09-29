@@ -5,8 +5,8 @@
 
 SECONDS=0 # builtin bash timer
 ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$(pwd)/tc/clang-498229"
-AK3_DIR="$(pwd)/android/AnyKernel3"
+TC_DIR="$home\hikari\Clang\clang_aosp_12"
+AK3_DIR="$home\hikari\Kernel\kernel_xiaomi_surya\AnyKernel3
 DEFCONFIG="surya_defconfig"
 
 if test -z "$(git rev-parse --show-cdup 2>/dev/null)" &&
@@ -56,8 +56,6 @@ if [ -f "$kernel" ] && [ -f "$dtb" ] && [ -f "$dtbo" ]; then
 	echo -e "\nKernel compiled succesfully! Zipping up...\n"
 	if [ -d "$AK3_DIR" ]; then
 		cp -r $AK3_DIR AnyKernel3
-	elif ! git clone -q https://github.com/surya-aosp/AnyKernel3 -b arise; then
-		echo -e "\nAnyKernel3 repo not found locally and couldn't clone from GitHub! Aborting..."
 		exit 1
 	fi
 	cp $kernel $dtb $dtbo AnyKernel3

@@ -1,0 +1,29 @@
+!<thin>
+//                                              240       `
+irqchip.o/
+irq-gic.o/
+irq-gic-common.o/
+irq-gic-v2m.o/
+irq-gic-v3.o/
+irq-gic-v3-its.o/
+irq-gic-v3-its-pci-msi.o/
+irq-gic-v3-its-platform-msi.o/
+irq-gic-v4.o/
+irq-partition-percpu.o/
+msm_show_resume_irq.o/
+qcom/pdc.o/
+qcom/pdc-sdmmagpie.o/
+
+/0              0           0     0     644     4096      `
+/11             0           0     0     644     284104    `
+/22             0           0     0     644     20200     `
+/40             0           0     0     644     180024    `
+/55             0           0     0     644     309024    `
+/69             0           0     0     644     442040    `
+/87             0           0     0     644     153184    `
+/113            0           0     0     644     135136    `
+/144            0           0     0     644     80064     `
+/158            0           0     0     644     151176    `
+/182            0           0     0     644     22968     `
+/205            0           0     0     644     253816    `
+/217           /0           0     0     644     99328     `

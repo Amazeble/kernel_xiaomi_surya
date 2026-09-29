@@ -1,0 +1,13 @@
+!<thin>
+//                                              120       `
+of_touchscreen.o/
+nt36xxx_spi/nt36xxx.o/
+nt36xxx_spi/nt36xxx_fw_update.o/
+nt36xxx_spi/nt36xxx_ext_proc.o/
+tp_common.o/
+
+/0              0           0     0     644     133760    `
+/18             0           0     0     644     326592    `
+/41             0           0     0     644     170360    `
+/74             0           0     0     644     280184    `
+/106            0           0     0     644     20376     `

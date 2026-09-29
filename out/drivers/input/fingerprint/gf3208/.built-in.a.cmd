@@ -1,0 +1,1 @@
+cmd_drivers/input/fingerprint/gf3208/built-in.a :=   rm -f drivers/input/fingerprint/gf3208/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/input/fingerprint/gf3208/built-in.a drivers/input/fingerprint/gf3208/gf_spi.o drivers/input/fingerprint/gf3208/platform.o drivers/input/fingerprint/gf3208/netlink.o 

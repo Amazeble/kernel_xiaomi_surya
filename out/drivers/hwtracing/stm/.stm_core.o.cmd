@@ -1,0 +1,1 @@
+cmd_drivers/hwtracing/stm/stm_core.o :=  rm -f drivers/hwtracing/stm/stm_core.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/hwtracing/stm/stm_core.o drivers/hwtracing/stm/core.o drivers/hwtracing/stm/policy.o 

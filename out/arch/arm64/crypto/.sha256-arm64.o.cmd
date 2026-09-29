@@ -1,0 +1,1 @@
+cmd_arch/arm64/crypto/sha256-arm64.o :=  rm -f arch/arm64/crypto/sha256-arm64.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD arch/arm64/crypto/sha256-arm64.o arch/arm64/crypto/sha256-glue.o arch/arm64/crypto/sha256-core.o 

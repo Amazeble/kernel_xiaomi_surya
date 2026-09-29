@@ -1,0 +1,1 @@
+cmd_drivers/i2c/i2c-core.o :=  rm -f drivers/i2c/i2c-core.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/i2c/i2c-core.o drivers/i2c/i2c-core-base.o drivers/i2c/i2c-core-smbus.o drivers/i2c/i2c-core-of.o 

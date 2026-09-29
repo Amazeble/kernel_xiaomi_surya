@@ -1,0 +1,1 @@
+cmd_drivers/crypto/msm/built-in.a :=   rm -f drivers/crypto/msm/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/crypto/msm/built-in.a drivers/crypto/msm/qce50.o drivers/crypto/msm/qcedevice.o drivers/crypto/msm/qcrypto.o drivers/crypto/msm/ice.o 

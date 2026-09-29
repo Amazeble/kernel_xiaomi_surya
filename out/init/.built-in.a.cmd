@@ -1,0 +1,1 @@
+cmd_init/built-in.a :=   rm -f init/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD init/built-in.a init/main.o init/version.o init/mounts.o init/noinitramfs.o init/initramfs.o init/calibrate.o init/init_task.o 

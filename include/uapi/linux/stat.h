@@ -147,6 +147,8 @@ also.
 #define STATX_ATTR_VERITY		0x00100000 /* [I] Verity protected file */
 
 /* SUSFS helper macro */
+#ifndef SUSFS_IS_INODE_SUS_MAP
 #define SUSFS_IS_INODE_SUS_MAP(inode) 0
+#endif
 
 #endif /* _UAPI_LINUX_STAT_H */

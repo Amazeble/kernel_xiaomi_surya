@@ -1,0 +1,1 @@
+cmd_drivers/android/built-in.a :=   rm -f drivers/android/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/android/built-in.a drivers/android/binderfs.o drivers/android/binder.o drivers/android/binder_alloc.o drivers/android/simple_lmk.o drivers/android/psi.o 

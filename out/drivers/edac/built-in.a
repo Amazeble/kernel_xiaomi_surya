@@ -1,0 +1,20 @@
+!<thin>
+//                                              134       `
+edac_mc.o/
+edac_device.o/
+edac_mc_sysfs.o/
+edac_module.o/
+edac_device_sysfs.o/
+wq.o/
+edac_pci.o/
+edac_pci_sysfs.o/
+kryo_arm64_edac.o/
+/0              0           0     0     644     211360    `
+/11             0           0     0     644     158440    `
+/26            /0           0     0     644     212416    `
+/43             0           0     0     644     127888    `
+/58             0           0     0     644     166168    `
+/79             0           0     0     644     13680     `
+/85             0           0     0     644     158912    `
+/97             0           0     0     644     170728    `
+/115            0           0     0     644     178768    `

@@ -1,0 +1,66 @@
+!<thin>
+//                                              414       `
+core.o/
+syscall.o/
+verifier.o/
+inode.o/
+helpers.o/
+tnum.o/
+bpf_iter.o/
+map_iter.o/
+task_iter.o/
+prog_iter.o/
+hashtab.o/
+arraymap.o/
+percpu_freelist.o/
+bpf_lru_list.o/
+lpm_trie.o/
+map_in_map.o/
+local_storage.o/
+queue_stack_maps.o/
+ringbuf.o/
+disasm.o/
+trampoline.o/
+btf.o/
+dispatcher.o/
+devmap.o/
+cpumap.o/
+bpf_local_storage.o/
+offload.o/
+net_namespace.o/
+stackmap.o/
+cgroup.o/
+reuseport_array.o/
+bpf_struct_ops.o/
+/0              0           0     0     644     542104    `
+/8              0           0     0     644     788424    `
+/19             0           0     0     644     976984    `
+/31             0           0     0     644     334408    `
+/40             0           0     0     644     338944    `
+/51             0           0     0     644     19952     `
+/59             0           0     0     644     326048    `
+/71             0           0     0     644     278336    `
+/83             0           0     0     644     293872    `
+/96             0           0     0     644     271144    `
+/109            0           0     0     644     459944    `
+/120            0           0     0     644     387472    `
+/132            0           0     0     644     21344     `
+/151            0           0     0     644     67336     `
+/167            0           0     0     644     330024    `
+/179            0           0     0     644     133976    `
+/193           /0           0     0     644     318616    `
+/210            0           0     0     644     147872    `
+/230            0           0     0     644     299848    `
+/241            0           0     0     644     35368     `
+/251            0           0     0     644     335512    `
+/265            0           0     0     644     733664    `
+/272            0           0     0     644     268104    `
+/286            0           0     0     644     361864    `
+/296            0           0     0     644     350528    `
+/306            0           0     0     644     339200    `
+/327            0           0     0     644     380616    `
+/338           /0           0     0     644     313944    `
+/355            0           0     0     644     363584    `
+/367            0           0     0     644     566856    `
+/377            0           0     0     644     307808    `
+/396            0           0     0     644     356376    `

@@ -1,0 +1,1 @@
+cmd_drivers/irqchip/qcom/built-in.a :=   rm -f drivers/irqchip/qcom/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/irqchip/qcom/built-in.a drivers/irqchip/qcom/pdc.o drivers/irqchip/qcom/pdc-sdmmagpie.o 

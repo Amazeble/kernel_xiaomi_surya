@@ -1,0 +1,1 @@
+cmd_drivers/hid/hid-wiimote.o :=  rm -f drivers/hid/hid-wiimote.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/hid/hid-wiimote.o drivers/hid/hid-wiimote-core.o drivers/hid/hid-wiimote-modules.o 

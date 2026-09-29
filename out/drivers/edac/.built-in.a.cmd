@@ -1,0 +1,1 @@
+cmd_drivers/edac/built-in.a :=   rm -f drivers/edac/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/edac/built-in.a drivers/edac/edac_core.o drivers/edac/kryo_arm64_edac.o 

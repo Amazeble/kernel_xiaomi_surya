@@ -1,0 +1,1 @@
+cmd_crypto/asymmetric_keys/asymmetric_keys.o :=  rm -f crypto/asymmetric_keys/asymmetric_keys.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD crypto/asymmetric_keys/asymmetric_keys.o crypto/asymmetric_keys/asymmetric_type.o crypto/asymmetric_keys/restrict.o crypto/asymmetric_keys/signature.o 

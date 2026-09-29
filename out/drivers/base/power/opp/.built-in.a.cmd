@@ -1,0 +1,1 @@
+cmd_drivers/base/power/opp/built-in.a :=   rm -f drivers/base/power/opp/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/base/power/opp/built-in.a drivers/base/power/opp/core.o drivers/base/power/opp/cpu.o drivers/base/power/opp/of.o 

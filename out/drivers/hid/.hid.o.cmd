@@ -1,0 +1,1 @@
+cmd_drivers/hid/hid.o :=  rm -f drivers/hid/hid.o; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/hid/hid.o drivers/hid/hid-core.o drivers/hid/hid-input.o drivers/hid/hidraw.o 

@@ -1,0 +1,68 @@
+!<thin>
+//                                              678       `
+input.o/
+input-compat.o/
+input-mt.o/
+ff-core.o/
+ff-memless.o/
+input-leds.o/
+evdev.o/
+keyboard/atkbd.o/
+keyboard/gpio_keys.o/
+joystick/xpad.o/
+tablet/acecad.o/
+tablet/aiptek.o/
+tablet/gtco.o/
+tablet/hanwang.o/
+tablet/kbtab.o/
+touchscreen/of_touchscreen.o/
+touchscreen/nt36xxx_spi/nt36xxx.o/
+touchscreen/nt36xxx_spi/nt36xxx_fw_update.o/
+touchscreen/nt36xxx_spi/nt36xxx_ext_proc.o/
+touchscreen/tp_common.o/
+misc/gpio_event.o/
+misc/gpio_matrix.o/
+misc/gpio_input.o/
+misc/gpio_output.o/
+misc/gpio_axis.o/
+misc/qpnp-power-on.o/
+misc/uinput.o/
+keyreset.o/
+keycombo.o/
+fingerprint/fpc1020_tee.o/
+fingerprint/gf3208/gf_spi.o/
+fingerprint/gf3208/platform.o/
+fingerprint/gf3208/netlink.o/
+/0              0           0     0     644     387808    `
+/9              0           0     0     644     108000    `
+/25             0           0     0     644     150440    `
+/37             0           0     0     644     145856    `
+/48             0           0     0     644     157704    `
+/62             0           0     0     644     141600    `
+/76             0           0     0     644     355616    `
+/85             0           0     0     644     234400    `
+/103            0           0     0     644     214672    `
+/125            0           0     0     644     268784    `
+/142            0           0     0     644     168560    `
+/159            0           0     0     644     269920    `
+/176            0           0     0     644     184040    `
+/191            0           0     0     644     183176    `
+/209            0           0     0     644     165280    `
+/225            0           0     0     644     133760    `
+/255            0           0     0     644     326592    `
+/290            0           0     0     644     170360    `
+/335            0           0     0     644     280184    `
+/379            0           0     0     644     20376     `
+/404            0           0     0     644     144040    `
+/423            0           0     0     644     166280    `
+/443            0           0     0     644     158688    `
+/462            0           0     0     644     135104    `
+/482            0           0     0     644     144472    `
+/500           /0           0     0     644     403008    `
+/522            0           0     0     644     248456    `
+/537            0           0     0     644     180432    `
+/549            0           0     0     644     151584    `
+/561            0           0     0     644     214864    `
+/588            0           0     0     644     208952    `
+/617            0           0     0     644     131632    `
+/648            0           0     0     644     291248    `

@@ -1,0 +1,1 @@
+cmd_drivers/hid/usbhid/built-in.a :=   rm -f drivers/hid/usbhid/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/hid/usbhid/built-in.a drivers/hid/usbhid/usbhid.o 

@@ -1,0 +1,1 @@
+cmd_drivers/gpu/drm/bridge/built-in.a :=   rm -f drivers/gpu/drm/bridge/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/gpu/drm/bridge/built-in.a drivers/gpu/drm/bridge/synopsys/built-in.a drivers/gpu/drm/bridge/analogix-anx7625.o drivers/gpu/drm/bridge/lt9611.o 

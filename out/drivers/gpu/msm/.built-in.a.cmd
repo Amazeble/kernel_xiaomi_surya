@@ -1,0 +1,1 @@
+cmd_drivers/gpu/msm/built-in.a :=   rm -f drivers/gpu/msm/built-in.a; /home/hikari/Gcc/google_gcc_arm64/bin/aarch64-linux-android-ar rcSTPD drivers/gpu/msm/built-in.a drivers/gpu/msm/msm_kgsl_core.o drivers/gpu/msm/msm_adreno.o 

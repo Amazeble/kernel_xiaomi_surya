@@ -121,7 +121,9 @@
 #ifndef GET_TAGGED_ADDR_CTRL
 # define GET_TAGGED_ADDR_CTRL()		(-EINVAL)
 #endif
-
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern int ksu_handle_setresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+#endif
 /*
  * this is where the system-wide overflow UID and GID are defined, for
  * architectures that now have 32-bit UID/GID but didn't in the past
@@ -485,6 +487,11 @@ SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 	int retval;
 	kuid_t kruid, keuid;
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	/* setreuid only has ruid and euid parameters */
+	(void)ksu_handle_setresuid(&ruid, &euid, NULL);
+#endif
+
 	kruid = make_kuid(ns, ruid);
 	keuid = make_kuid(ns, euid);
 
@@ -590,6 +597,9 @@ error:
 	return retval;
 }
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern int ksu_handle_setresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+#endif
 
 /*
  * This function implements a generic ability to update ruid, euid,
@@ -602,6 +612,10 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	struct cred *new;
 	int retval;
 	kuid_t kruid, keuid, ksuid;
+
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	(void)ksu_handle_setresuid(&ruid, &euid, &suid);
+#endif
 
 	kruid = make_kuid(ns, ruid);
 	keuid = make_kuid(ns, euid);
@@ -657,25 +671,6 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 
 error:
 	abort_creds(new);
-	return retval;
-}
-
-SYSCALL_DEFINE3(getresuid, uid_t __user *, ruidp, uid_t __user *, euidp, uid_t __user *, suidp)
-{
-	const struct cred *cred = current_cred();
-	int retval;
-	uid_t ruid, euid, suid;
-
-	ruid = from_kuid_munged(cred->user_ns, cred->uid);
-	euid = from_kuid_munged(cred->user_ns, cred->euid);
-	suid = from_kuid_munged(cred->user_ns, cred->suid);
-
-	retval = put_user(ruid, ruidp);
-	if (!retval) {
-		retval = put_user(euid, euidp);
-		if (!retval)
-			return put_user(suid, suidp);
-	}
 	return retval;
 }
 
@@ -1183,6 +1178,7 @@ static int override_release(char __user *release, size_t len)
 }
 
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+extern struct static_key_false susfs_is_uname_spoof_buffer_set;
 extern void susfs_spoof_uname(struct new_utsname* tmp);
 #endif
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
@@ -1191,6 +1187,10 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+	if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
+		susfs_spoof_uname(&tmp);
+#endif
 	if (!strncmp(current->comm, "bpfloader", 9) ||
 	    !strncmp(current->comm, "netbpfload", 10) ||
 	    !strncmp(current->comm, "netd", 4)) {
@@ -1200,9 +1200,6 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 				 current->comm, current->pid, tmp.release);
 		}
 	}
-#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-	susfs_spoof_uname(&tmp);
-#endif
 	up_read(&uts_sem);
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;
