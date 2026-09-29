@@ -53,7 +53,7 @@ main:                                   // @main
 	.loc	1 51 3                          // ../arch/arm64/kernel/asm-offsets.c:51:3
 	//APP
 	
-.ascii "->THREAD_CPU_CONTEXT 2704 offsetof(struct task_struct, thread.cpu_context)"
+.ascii "->THREAD_CPU_CONTEXT 2720 offsetof(struct task_struct, thread.cpu_context)"
 	//NO_APP
 	.loc	1 52 3                          // ../arch/arm64/kernel/asm-offsets.c:52:3
 	//APP
