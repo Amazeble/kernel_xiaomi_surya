@@ -1,4 +1,4 @@
-name: ELISE KERNEL
+7name: ELISE KERNEL
 
 on:
   push:
@@ -151,12 +151,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-
-name: 'Patch Droidspaces for Kernel.'
-
-runs:
-  using: 'composite'
-  steps:
+          
       - name: Patch Droidspaces
         if: env.DROIDSPACES_ENABLE == 'true'
         shell: bash
