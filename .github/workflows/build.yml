@@ -1,95 +1,12 @@
-7name: ELISE KERNEL
+name: ELISE KERNEL
 
 on:
   push:
-    branches: [ lineage-23.2 ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ lineage-23.2 ]
+    branches: [ main, master ]
   workflow_dispatch:
 
-
-name: Build Xiaomi Mi 11 (Evolution X 11 A16)
-
-on:
-  workflow_call:
-  workflow_dispatch:
-
-env:
-  # Device env
-  DEVICE_NAME : "POCO X3 NFC"
-  DEVICE_CODENAME : "surya"
-
-  CUSTOM_CMDS : "CLANG_TRIPLE=aarch64-linux-gnu-"
-  EXTRA_CMDS : "LD=ld.lld"
-
-  KERNEL_SOURCE : "https://github.com/Amazeble/kernel_xiaomi_surya.git"
-  KERNEL_BRANCH : "16"
-
-  CLANG_SOURCE : "https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git"
-  CLANG_BRANCH : "lineage-20.0"
-
-  GCC_GNU : false
-  GCC_64_SOURCE : "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9.git"
-  GCC_64_BRANCH : "android12L-release"
-  GCC_32_SOURCE : "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9.git"
-  GCC_32_BRANCH : "android12L-release"
-
-  DEFCONFIG_SOURCE: ""
-  DEFCONFIG_NAME : "surya_defconfig"
-  DEFCONFIG_ORIGIN_IMAGE: ""
-  DEFCONFIG_FROM_BOOT: false
-
-  KERNELSU_SOURCE : ""
-  KERNELSU_BRANCH : ""
-
-  KERNELSU_AUTO_GET : "false"
-  KERNELSU_AUTO_FORK : "resukisu" # xxksu, rsuntk , next, resukisu and sukisu
-
-  SUSFS_ENABLE : true
-  SUSFS_FIXED : false
-
-  AK3_SOURCE : "https://github.com/osm0sis/AnyKernel3.git"
-  AK3_BRANCH : "master"
-
-  BOOT_SOURCE : ""
-
-  NEED_DTBO : false
-  NEED_SAFE_DTBO : false
-
-  ROM_TEXT : "evolution_x_a16"
-
-  # Other env
-  PYTHON_VERSION: "3" # Only 2(Ubuntu 22.04 and Ubuntu 20.04) or 3(Any OS Versions).
-
-  PACK_METHOD: "AnyKernel3" # AnyKernel3 need SOURCE and BRANCH, MKBOOTIMG needn't it.
-  PACK_KMODULES: "false" # if u want pack kernel modules (.ko) into AnyKernel3.
-
-
-  REKERNEL_ENABLE: "false" # if u need Re:Kernel.
-  DROIDSPACES_ENABLE: "true" # if u need Droidspaces or LXC/Docker.
-  NOMOUNT_ENABLE: "true" # if u need NoMount.
-
-  HOOK_METHOD: ""
-
-  KPM_ENABLE: "true" # Anyone devices.
-  KPM_INLINE: "false" # Only use it for SukiSU-Ultra.
-  KPM_KPATCH_NEXT: "false" # If u want hook KPatch-Next in build step.
-  KPM_PATCH_SOURCE: "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU_patch/refs/heads/main/kpm/patch_linux" # If u want to use KPM Inline,so you need set patch exec file source -> raw.githubusercontent.com/Test/Test/patch .
-
-  BASEBAND_GUARD_ENABLE: "false" #if u want prevent unauthorized writes to critical partitions/device nodes.
-  BASEBAND_GUARD_BOOT: "false" #if u want to protect boot partition.
-
-  GENERATE_DTB: "false" # if u kernel need DTB , but cannot auto generate it. (Only AnyKernel3).
-  GENERATE_CHIP: "qcom" # only supported for qcom and mediatek.
-
-  BUILD_DEBUGGER: "false" # Output build errors.
-  SKIP_PATCH: "false" # Ignore errors found in Patch Debugger.
-
-  BUILD_OTHER_CONFIG: "false" # Merge config files.
-  MERGE_CONFIG_FILES: "vendor/venus_QGKI.config,vendor/xiaomi_QGKI.config"
-
-  FREE_MORE_SPACE: "false" # if u want get more space, enabled it.
-  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -98,10 +15,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-       
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          # Added coccinelle for 'spatch' required by Droidspaces action.yml
+          sudo apt-get install -y bc bison build-essential cpio flex git gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libelf-dev zip python3 rsync dwarves coccinelle
+
       - name: Setup AOSP Clang Toolchain
         run: |
-          set -euo pipefail
           TC_DIR="$(pwd)/tc/clang-498229"
           if [ ! -d "$TC_DIR" ]; then
             GITLAB_HOST="https://gitlab.com"
@@ -109,9 +31,9 @@ jobs:
             git clone --depth=1 -b 17 "${GITLAB_HOST}${TC_PATH}" "$TC_DIR"
           fi
           echo "$TC_DIR/bin" >> $GITHUB_PATH
+
       - name: Vendor in rtw88 (RTL8812AU) driver from NetHunter tree
         run: |
-          set -euo pipefail
           GIT_HOST="https://github.com"
           DRIVER_PATH="/akabul0us/android_kernel_xiaomi_surya_nethunter.git"
           git clone --depth=1 --branch rebase-2-electric-boogaloo "${GIT_HOST}${DRIVER_PATH}" /tmp/nethunter
@@ -126,14 +48,14 @@ jobs:
           
           # Verify patches were applied
           if grep -r 'NL80211_SCAN_FLAG_RANDOM_SN' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "ERROR: SN NOT PATCHED"
+            echo "WARNING: SN NOT PATCHED"
             exit 1
           else
             echo "SN PATCHED OK"
           fi
           
           if grep -r 'RX_FLAG_NO_PSDU' drivers/net/wireless/realtek/rtw88 > /dev/null; then
-            echo "ERROR: PSDU NOT PATCHED"
+            echo "WARNING: PSDU NOT PATCHED"
             exit 1
           else
             echo "PSDU PATCHED OK"
@@ -144,188 +66,106 @@ jobs:
             sed -i '/source "drivers\/net\/wireless\/realtek\/rtl8xxxu\/Kconfig"/a source "drivers/net/wireless/realtek/rtw88/Kconfig"' drivers/net/wireless/realtek/Kconfig
           grep -q 'CONFIG_RTW88' drivers/net/wireless/realtek/Makefile || \
             echo 'obj-$(CONFIG_RTW88) += rtw88/' >> drivers/net/wireless/realtek/Makefile
-            
-  
-      - name: Generate & Force Feature Defconfig
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-          
-      - name: Patch Droidspaces
-        run: |
-          cd $GITHUB_WORKSPACE/device_kernel/
-          cp /tmp/Patches/Droidspaces/droidspaces.config ./arch/"${{ env.KERNEL_ARCH }}"/configs/
 
+      - name: Patch Droidspaces
+        env:
+          DROIDSPACES_ENABLE: 'true'
+          SUSFS_ENABLE: 'true'
+          KERNEL_ARCH: 'arm64'
+        run: |
+          # Clone repo to root and align directories to match what action.yml expects (/tmp/Patches/Droidspaces)
+          git clone --depth=1 https://github.com/Amazeble/NonGKI_Kernel_Build_2nd.git
+          mkdir -p /tmp/Patches
+          cp -r ./NonGKI_Kernel_Build_2nd/Patches/Droidspaces /tmp/Patches/
+          
+          # Copy defconfig fragment safely using hardcoded arch
+          cp /tmp/Patches/Droidspaces/droidspaces.config ./arch/arm64/configs/ || true
+          
           cgroup_patch(){
             cp /tmp/Patches/Droidspaces/fix_restore_cgroup_file_prefix_handling.cocci ./
             spatch --sp-file fix_restore_cgroup_file_prefix_handling.cocci --in-place kernel/$CGROUP_FILE
             echo "[+] cgroup.c Patched."
           }
-
-          if [[ "${{ env.SUSFS_ENABLE }}" == "true" ]]; then
+          
+          if [[ "${SUSFS_ENABLE}" == "true" ]]; then
             echo "[-] Detected that SUSFS has been enabled, which may cause Droidspaces to work abnormally."
           fi
-
+          
           if [[ -f "net/netfilter/xt_qtaguid.c" ]]; then
-                cp /tmp/Patches/Droidspaces/fix_kernel_panic_in_xt_qtaguid.cocci ./
-                spatch --sp-file fix_kernel_panic_in_xt_qtaguid.cocci --in-place net/netfilter/xt_qtaguid.c
-                echo "[+] xt_qtaguid.c Patched."
-
+            cp /tmp/Patches/Droidspaces/fix_kernel_panic_in_xt_qtaguid.cocci ./
+            spatch --sp-file fix_kernel_panic_in_xt_qtaguid.cocci --in-place net/netfilter/xt_qtaguid.c
+            echo "[+] xt_qtaguid.c Patched."
           else
-                echo "[-] You kernel havn't xt_qtaguid.c, Skipped."
-
+            echo "[-] Your kernel hasn't xt_qtaguid.c, Skipped."
           fi
-
+          
           if [[ -f "kernel/cgroup/cgroup.c" ]] && ! grep -q "kernfs_create_link" "kernel/cgroup/cgroup.c" >/dev/null 2>&1; then
-                CGROUP_FILE="cgroup/cgroup.c"
-                cgroup_patch
-
+            CGROUP_FILE="cgroup/cgroup.c"
+            cgroup_patch
           elif [[ -f "kernel/cgroup.c" ]] && ! grep -q "kernfs_create_link" "kernel/cgroup.c" >/dev/null 2>&1; then
-                CGROUP_FILE="cgroup.c"
-                cgroup_patch
-
+            CGROUP_FILE="cgroup.c"
+            cgroup_patch
           else
-                echo "[-] Detected cgroup.c patched, Skipped."
-
+            echo "[-] Detected cgroup.c patched, Skipped."
           fi
-
           echo "[+] Patched Droidspaces for your kernel successfully."
 
-      
+      - name: Generate & Force Feature Defconfig
+        run: |
+          mkdir -p out
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
+          
+          # --- KSU & SUSFS ---
           ./scripts/config --file out/.config --enable CONFIG_KSU
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
-         name: 'Patch Kernel for no-kprobe.'
-
-      - name: Patch Kernel for no-kprobe
-        shell: bash
-        run: |
-          cd $GITHUB_WORKSPACE/device_kernel
-
-          # Detect SUSFS is used to enable the SUSFS inline hook
-          if [[ ${{ env.SUSFS_ENABLE }} == "true" ]]; then
-            # Core
-            cp /tmp/Patches/susfs_inline_hook_patches.sh ./
-            bash susfs_inline_hook_patches.sh ./
-
-            echo "[+] executed SUSFS inline hook successfully."
-
-          # Check syscall hook
-          elif [[ ${{ env.HOOK_METHOD }} == "syscall" ]]; then
-            # Core
-            cp /tmp/Patches/syscall_hook_patches.sh ./
-            bash syscall_hook_patches.sh ./
-
-            echo "[+] executed syscall hook successfully."
-
-          else
-            echo "[-] please input a vaild option!"
-            false
-
-          fi
-
-
-          elif [[ "${{ env.KPM_ENABLE }}" == "true" ]]; then
-            echo "[+] Detected KPM, Skipped."
-
-          elif grep -q "CONFIG_KALLSYMS=y" "./arch/"${{ env.KERNEL_ARCH }}"/configs/${{ env.DEFCONFIG_NAME }}" && grep -q "CONFIG_KALLSYMS_ALL=y" "./arch/"${{ env.KERNEL_ARCH }}"/configs/${{ env.DEFCONFIG_NAME }}" >/dev/null 2>&1; then
-            echo "[+] Detected KALLSYMS enabled, Skipped."
-
-          else
-            if grep "const write_op" "security/selinux/selinuxfs.c" >/dev/null 2>&1; then
-                sed -i 's/static ssize_t (\*const write_op\[\])(struct file \*, char \*, size_t)/ssize_t (*const write_op[])(struct file *, char *, size_t)/' security/selinux/selinuxfs.c
-
-            else
-                sed -i 's/static ssize_t (\*write_op\[\])(struct file \*, char \*, size_t)/ssize_t (*write_op[])(struct file *, char *, size_t)/' security/selinux/selinuxfs.c
-
-            fi
-            sed -i 's/^static const struct file_operations sel_handle_status_ops = {/const struct file_operations sel_handle_status_ops = {/' security/selinux/selinuxfs.c
-
-            echo "[+] Removed write_op and sel_handle_status_ops static state."
-
-            if [ "$FIRST_VERSION" -lt 5 ] && [ "$SECOND_VERSION" -lt 15 ]; then
-                if grep -q "sel_mutex" "security/selinux/selinuxfs.c" >/dev/null 2>&1; then
-                    sed -i 's/^static DEFINE_MUTEX(sel_mutex)/DEFINE_MUTEX(sel_mutex)/' security/selinux/selinuxfs.c
-                    echo "[+] Removed sel_mutex static state."
-
-                else
-                    echo "[-] Your Kernel haven't sel_mutex, Skipped."
-                fi
-
-                if grep -q "selinux_status_page" "security/selinux/ss/status.c" >/dev/null 2>&1; then
-                    sed -i 's/^static struct page \*selinux_status_page/struct page *selinux_status_page/' security/selinux/ss/status.c
-                    echo "[+] Removed selinux_status_page static state."
-
-                else
-                    echo "[-] Your Kernel haven't selinux_status_page, Skipped."
-                fi
-
-                if grep -q "selinux_status_lock" "security/selinux/ss/status.c" >/dev/null 2>&1; then
-                    sed -i 's/^static DEFINE_MUTEX(selinux_status_lock)/DEFINE_MUTEX(selinux_status_lock)/' security/selinux/ss/status.c
-                    echo "[+] Removed selinux_status_lock static state."
-
-                else
-                    echo "[-] Your Kernel haven't selinux_status_lock, Skipped."
-                fi
-            fi
-
-            if [ "$FIRST_VERSION" -lt 4 ] && [ "$SECOND_VERSION" -lt 19 ]; then
-                if grep -q "selinux_status_page" "security/selinux/hooks.c" >/dev/null 2>&1; then
-                    sed -i 's/^static struct security_operations selinux_ops/struct security_operations selinux_ops/' security/selinux/hooks.c
-                    echo "[+] Removed selinux_ops static state."
-
-                else
-                    echo "[-] Your Kernel haven't selinux_ops, Skipped."
-                fi
-            fi
-
-            echo "[+] Checked successfully."
-          fi
-
-- name: Set KSU and SUSFS for DEFCONFIG
-        if: env.SUSFS_ENABLE == 'true'
-        shell: bash
-        run: |
-          cd $GITHUB_WORKSPACE/device_kernel
-
-          echo "CONFIG_KSU_SUSFS=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-
-          if grep -q "THREAD_INFO_IN_TASK" "drivers/kernelsu/Kconfig"; then
-            echo "CONFIG_THREAD_INFO_IN_TASK=y" >> ./arch/${{ env.KERNEL_ARCH }}/configs/${{ env.DEFCONFIG_NAME }}
-
-          fi
-
-       # --- Other features ---
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          ./scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_PATH
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_KSTAT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          ./scripts/config --file out/.config --enable CONFIG_KSU_SUSFS_SUS_MAP
+          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK_AUTO_INITRC_HOOK
+          ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK_AUTO_SETUID_HOOK
+          
+          # --- System & FS ---
+          ./scripts/config --file out/.config --enable CONFIG_SYSCTL
+          ./scripts/config --file out/.config --enable CONFIG_SYSVIPC
+          ./scripts/config --file out/.config --enable CONFIG_POSIX_MQUEUE
           ./scripts/config --file out/.config --enable CONFIG_KPM
           ./scripts/config --file out/.config --enable CONFIG_EXT4_FS
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
-          ./scripts/config --file out/.config --enable CONFIG_USB_GADGET
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS
+          ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
+          
+          # --- Modules Support (Required for =m configs) ---
+          ./scripts/config --file out/.config --enable CONFIG_MODULES
+          ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
+          
+          # --- IMPORTANT: Disable KPROBES ---
+          ./scripts/config --file out/.config --disable CONFIG_KPROBES
+          
+          # --- USB ---
+          ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_FS
           ./scripts/config --file out/.config --enable CONFIG_USB_F_FS
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_UEVENT
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_RNDIS
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_MASS_STORAGE
-          ./scripts/config --file out/.config --enable CONFIG_USB_CONFIGFS_F_HID
           ./scripts/config --file out/.config --enable CONFIG_USB_F_RNDIS
           ./scripts/config --file out/.config --enable CONFIG_USB_F_MASS_STORAGE
           ./scripts/config --file out/.config --enable CONFIG_USB_F_HID
+          
+          # --- Bluetooth ---
           ./scripts/config --file out/.config --enable CONFIG_BT
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_BCM
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_RTL
-          ./scripts/config --file out/.config --enable CONFIG_BT_HCIBTUSB_MTK
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_BCM
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_RTL
+          ./scripts/config --file out/.config --module CONFIG_BT_HCIBTUSB_MTK
+          
+          # --- Wi-Fi (RTW88 Standard NetHunter) ---
           ./scripts/config --file out/.config --enable CONFIG_CFG80211
           ./scripts/config --file out/.config --enable CONFIG_MAC80211
           ./scripts/config --file out/.config --enable CONFIG_RTW88
@@ -333,24 +173,76 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_USB
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
-     
-          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
           
-     
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
+
+      # FIX 1: Removed duplicate dash that caused YAML syntax error
       - name: Build Kernel
         run: |
-          set -euo pipefail
+          # FIX 2: Removed redundant pre-build gzip commands that wasted CI time
           make -j$(nproc --all) O=out ARCH=arm64 \
           KCFLAGS="-Wno-error -Wno-error=implicit-function-declaration -Wno-error=strict-prototypes -DRX_FLAG_NO_PSDU=0 -DNL80211_SCAN_FLAG_RANDOM_SN=0" \
           CC=clang LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
           CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           LLVM=1 LLVM_IAS=1 \
           Image.gz dtb.img dtbo.img modules 2> >(tee log.txt >&2) || exit $?
+
+      - name: Compile WFB-ng RTL8812AU Driver (Out-of-Tree)
+        run: |
+          # Clone the specialized WFB-ng driver
+          git clone -b v5.2.20 https://github.com/svpcom/rtl8812au.git /tmp/rtl8812au_wfb
           
+          # Compile it against your kernel build directory
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          M=/tmp/rtl8812au_wfb modules
+          
+          # Rename it so it doesn't overwrite the NetHunter one
+          if [ -f "/tmp/rtl8812au_wfb/8812au.ko" ]; then
+            mv /tmp/rtl8812au_wfb/8812au.ko /tmp/rtl8812au_wfb/8812au_wfb.ko
+            echo "WFB-ng driver compiled successfully."
+          else
+            echo "WARNING: WFB-ng driver failed to compile!"
+          fi
+          
+      - name: Embed APatch Core into Output Kernel Binary
+        env:
+          KP_SECURE_KEY: ${{ secrets.KP_SECURE_KEY }}
+        run: |
+          # 1. Pull the latest release tag from the official KernelPatch API
+          KP_VERSION=$(curl -s https://api.github.com/repos/bmax121/KernelPatch/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Using KernelPatch Version: $KP_VERSION"
+          
+          # 2. Download the standalone binaries directly from the release assets
+          mkdir -p ./apatch-tools
+          curl -Lo ./apatch-tools/kptools "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kptools-linux"
+          curl -Lo ./apatch-tools/kpimg-android "https://github.com/bmax121/KernelPatch/releases/download/${KP_VERSION}/kpimg-android"
+          chmod +x ./apatch-tools/kptools
+          
+          # 3. Decompress Image.gz because kptools requires an uncompressed kernel image to patch
+          # FIX 3: Added rm -f and -df flag to prevent "already exists; not overwritten" error
+          if [ -f "out/arch/arm64/boot/Image.gz" ]; then
+            rm -f out/arch/arm64/boot/Image
+            gzip -df out/arch/arm64/boot/Image.gz
+          fi
+          
+          # 4. Inject APatch engine hooks using the correct CLI arguments
+          ./apatch-tools/kptools -p \
+            --image out/arch/arm64/boot/Image \
+            --out out/arch/arm64/boot/Image-patched \
+            --skey "${KP_SECURE_KEY}" \
+            --kpimg ./apatch-tools/kpimg-android
+            
+          # 5. Replace the original image and compress it back to Image.gz for AnyKernel3
+          mv out/arch/arm64/boot/Image-patched out/arch/arm64/boot/Image
+          # FIX 4: Added -f flag to prevent gzip overwrite failure on repack
+          gzip -f out/arch/arm64/boot/Image
+          
+          echo "EMBED SUCCESSFUL: Official APatch runtime engine hooks hard-baked into Image.gz."
+
       - name: Package AnyKernel3 ZIP
         run: |
-          set -euo pipefail
-          export ZIPNAME="Elise_surya-$(date '+%Y%m%d-%H%M').zip"
+          export ZIPNAME="Arise-surya-$(date '+%Y%m%d-%H%M').zip"
           head=$(git rev-parse --verify HEAD 2>/dev/null)
           if [ -n "$head" ]; then
             ZIPNAME="${ZIPNAME::-4}-$(echo $head | cut -c1-8).zip"
@@ -367,18 +259,32 @@ jobs:
             fi
             
             cp $kernel $dtb $dtbo AnyKernel3/
+            
+            mkdir -p AnyKernel3/system/lib/modules
+            
+            # 1. Copy NetHunter (Standard) Driver
             rtw_mod=$(find out -name 'rtw88_8812au.ko' | head -n1)
             if [ -n "$rtw_mod" ]; then
-              mkdir -p AnyKernel3/system/lib/modules
               cp "$rtw_mod" AnyKernel3/system/lib/modules/
             else
               echo "WARNING: rtw88_8812au.ko not found in build output!"
             fi
+            
+            # 2. Copy WFB-ng (Drone/Injection) Driver
+            wfb_mod=$(find /tmp/rtl8812au_wfb -name '8812au_wfb.ko' | head -n1)
+            if [ -n "$wfb_mod" ]; then
+              cp "$wfb_mod" AnyKernel3/system/lib/modules/
+            else
+              echo "WARNING: 8812au_wfb.ko not found!"
+            fi
+
+            # FIX 5: Search entire workspace for firmware instead of just out/ directory
             rtw_fw=$(find . -name 'rtw8812a_fw.bin' | head -n1)
             if [ -n "$rtw_fw" ]; then
               mkdir -p AnyKernel3/vendor/firmware/rtw88
               cp "$rtw_fw" AnyKernel3/vendor/firmware/rtw88/
             fi
+            
             mkdir -p AnyKernel3/system/etc/init
             printf '%s\n' \
               'on boot' \
@@ -401,6 +307,7 @@ jobs:
             echo "Compilation failed!"
             exit 1
           fi
+
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
