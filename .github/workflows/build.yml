@@ -153,8 +153,6 @@ jobs:
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
           
       - name: Patch Droidspaces
-        if: env.DROIDSPACES_ENABLE == 'true'
-        shell: bash
         run: |
           cd $GITHUB_WORKSPACE/device_kernel/
           cp /tmp/Patches/Droidspaces/droidspaces.config ./arch/"${{ env.KERNEL_ARCH }}"/configs/
@@ -199,9 +197,6 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
          name: 'Patch Kernel for no-kprobe.'
 
-runs:
-  using: 'composite'
-  steps:
       - name: Patch Kernel for no-kprobe
         shell: bash
         run: |
