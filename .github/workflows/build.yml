@@ -89,9 +89,7 @@ env:
   MERGE_CONFIG_FILES: "vendor/venus_QGKI.config,vendor/xiaomi_QGKI.config"
 
   FREE_MORE_SPACE: "false" # if u want get more space, enabled it.
-
-
-
+  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -100,7 +98,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-/
        
       - name: Setup AOSP Clang Toolchain
         run: |
