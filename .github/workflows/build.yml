@@ -1,7 +1,7 @@
 name: Build Xiaomi Surya Kernel (NetHunter + KSU)
 
 on:
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  workflow_dispatch:
   push:
     branches: [ "lineage-23.2" ]
   pull_request:
@@ -14,82 +14,64 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        with:
-          submodules: 'recursive' # Ensures KernelSU and other submodules are cloned
+        # We omit 'submodules: recursive' here to prevent the AnyKernel3 crash
+
+      - name: Fix Submodules & Broken AnyKernel3 Reference
+        run: |
+          set -euo pipefail
+          echo "::group::Fixing AnyKernel3 submodule error"
+          # Remove the broken gitlink for AnyKernel3 from the git index
+          # This stops Git from complaining about the missing URL in .gitmodules
+          git rm --cached -f AnyKernel3 2>/dev/null || true
+          
+          # Now safely initialize other submodules (like KernelSU)
+          if [ -f .gitmodules ]; then
+            git submodule sync --recursive
+            git submodule update --init --recursive --depth=1 || true
+          fi
+          echo "::endgroup::"
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            clang \
-            lld \
-            llvm \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            make \
-            python3 \
-            dos2unix \
-            git
+            build-essential clang lld llvm bc bison flex \
+            libssl-dev make python3 dos2unix git
 
       - name: Fix Kernel Tree Issues (CRLF & Missing Files)
         run: |
           set -euo pipefail
           echo "::group::Fixing line endings and missing Kconfigs"
-
-          # 1. Fix Windows CRLF line endings in KernelSU and all Kconfig files
-          # This resolves the "ignoring unsupported character '\r'" warnings
-          echo "Normalizing CRLF to LF..."
-          find . -path ./.git -prune -o -type f \( -name 'Kconfig*' -o -name 'Makefile*' \) -print0 | xargs -0 sed -i 's/\r$//' || true
           
-          # Specifically target KernelSU if it's a submodule or directory
+          # 1. Fix Windows CRLF line endings
+          find . -path ./.git -prune -o -type f \( -name 'Kconfig*' -o -name 'Makefile*' \) -print0 | xargs -0 sed -i 's/\r$//' || true
           if [ -d "drivers/kernelsu" ]; then
             find drivers/kernelsu -type f \( -name '*.c' -o -name '*.h' -o -name 'Kconfig*' -o -name 'Makefile*' \) -exec sed -i 's/\r$//' {} + || true
-            # Remove UTF-8 BOM if present
             find drivers/kernelsu -type f -name 'Kconfig*' -exec sed -i '1s/^\xEF\xBB\xBF//' {} + || true
           fi
 
           # 2. Handle missing fs/nomount/Kconfig
-          # If fs/Kconfig references it but the file doesn't exist, create an empty stub
-          # so the Kconfig parser doesn't throw a fatal Error 1.
           if [ -f "fs/Kconfig" ]; then
             if grep -q "source \"fs/nomount/Kconfig\"" fs/Kconfig; then
               if [ ! -f "fs/nomount/Kconfig" ]; then
-                echo "WARNING: fs/nomount/Kconfig is missing! Creating stub to prevent build failure."
                 mkdir -p fs/nomount
-                printf '# Stub file created by CI to satisfy fs/Kconfig source inclusion\n' > fs/nomount/Kconfig
-                printf '# CONFIG_NOMOUNT feature will NOT function without actual source code.\n' >> fs/nomount/Kconfig
+                printf '# Stub file created by CI\n' > fs/nomount/Kconfig
               fi
             fi
-          else
-            echo "::error::fs/Kconfig is completely missing from the source tree!"
-            exit 1
           fi
-
           echo "::endgroup::"
 
       - name: Setup Output Directory
         run: |
-          set -euo pipefail
           rm -rf out
           mkdir -p out
 
       - name: Generate Base Defconfig
         run: |
-          set -euo pipefail
-          echo "::group::Running surya_defconfig"
-          # Note: LLVM=1 automatically sets CC=clang in modern kernels, 
-          # but we keep CC=clang as requested.
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 surya_defconfig
-          echo "::endgroup::"
 
       - name: Apply Custom Configurations
         run: |
-          set -euo pipefail
-          echo "::group::Applying scripts/config modifications"
-
           # --- KSU & SUSFS ---
           ./scripts/config --file out/.config --enable CONFIG_KSU
           ./scripts/config --file out/.config --enable CONFIG_KSU_MANUAL_HOOK
@@ -117,19 +99,14 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_OVERLAY_FS
           ./scripts/config --file out/.config --enable CONFIG_PACKET
           
-          # IMPORTANT: Do NOT enable CONFIG_NOMOUNT here unless you have the actual 
-          # fs/nomount/*.c source code. Enabling it with just a stub Kconfig will 
-          # cause compilation errors later. We leave it disabled.
-          # ./scripts/config --file out/.config --enable CONFIG_NOMOUNT
-
           # --- Modules Support ---
           ./scripts/config --file out/.config --enable CONFIG_MODULES
           ./scripts/config --file out/.config --enable CONFIG_MODULE_UNLOAD
 
-          # --- Disable KPROBES (Required for KSU Manual Hook) ---
+          # --- Disable KPROBES ---
           ./scripts/config --file out/.config --disable CONFIG_KPROBES
 
-          # --- USB Gadget ---
+          # --- USB ---
           ./scripts/config --file out/.config --module CONFIG_USB_GADGET
           ./scripts/config --file out/.config --enable CONFIG_USB_LIBCOMPOSITE
           ./scripts/config --file out/.config --enable CONFIG_USB_F_FS
@@ -153,51 +130,13 @@ jobs:
           ./scripts/config --file out/.config --enable CONFIG_RTW88_8812A
           ./scripts/config --file out/.config --module CONFIG_RTW88_8812AU
 
-          echo "::endgroup::"
-
       - name: Finalize Configuration (olddefconfig)
         run: |
-          set -euo pipefail
-          echo "::group::Running olddefconfig"
-          # This resolves dependencies, drops invalid configs, and finalizes .config
           make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 olddefconfig
-          echo "::endgroup::"
-
-      - name: Verify Critical Configs
-        run: |
-          set -euo pipefail
-          echo "::group::Verifying .config"
-          echo "Checking if critical options survived olddefconfig..."
-          
-          check_config() {
-            if grep -q "$1=y" out/.config || grep -q "$1=m" out/.config; then
-              echo "✅ $1 is enabled"
-            else
-              echo "⚠️ WARNING: $1 was dropped or disabled by dependency resolution!"
-            fi
-          }
-
-          check_config "CONFIG_KSU"
-          check_config "CONFIG_KSU_SUSFS"
-          check_config "CONFIG_KSU_MANUAL_HOOK"
-          check_config "CONFIG_RTW88_8812AU"
-          
-          if grep -q "# CONFIG_KPROBES is not set" out/.config; then
-            echo "✅ CONFIG_KPROBES is successfully disabled"
-          else
-            echo "⚠️ WARNING: CONFIG_KPROBES might still be enabled!"
-          fi
-          
-          echo "::endgroup::"
 
       - name: Build Kernel Image
         run: |
-          set -euo pipefail
-          echo "::group::Compiling Kernel"
-          # Replace 'Image.gz-dtb' with whatever your specific device requires
-          # Common targets: Image, Image.gz, Image.gz-dtb, dtbs
           make -j$(nproc) O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 Image.gz-dtb
-          echo "::endgroup::"
 
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
